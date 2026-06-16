@@ -537,6 +537,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "trip_context_source_message_id_fkey"
+            columns: ["source_message_id"]
+            isOneToOne: false
+            referencedRelation: "messages"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "trip_context_trip_id_fkey"
             columns: ["trip_id"]
             isOneToOne: false
