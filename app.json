@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "Waypoint",
+    "slug": "waypoint",
+    "scheme": "waypoint",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "platforms": ["ios"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.jhoset.waypoint"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-image-picker"
+    ]
+  }
+}

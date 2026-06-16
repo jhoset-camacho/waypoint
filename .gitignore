@@ -1,5 +1,5 @@
-# Prompts locales (no subir a GitHub)
-_prompts/
+# Product: prompts, docs de producto, arquitectura (no subir a GitHub)
+product/
 
 # Dependencias
 node_modules/
