@@ -6,28 +6,27 @@ type AuthContextType = {
   session: Session | null;
   user: User | null;
   loading: boolean;
-  devBypass: boolean;
   signInWithApple: () => Promise<void>;
   signInWithGoogle: () => Promise<void>;
+  signInWithEmail: (email: string, password: string) => Promise<{ error: string | null }>;
+  signUpWithEmail: (email: string, password: string, name?: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
-  enableDevBypass: () => void;
 };
 
 export const AuthContext = createContext<AuthContextType>({
   session: null,
   user: null,
   loading: true,
-  devBypass: false,
   signInWithApple: async () => {},
   signInWithGoogle: async () => {},
+  signInWithEmail: async () => ({ error: null }),
+  signUpWithEmail: async () => ({ error: null }),
   signOut: async () => {},
-  enableDevBypass: () => {},
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [devBypass, setDevBypass] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -54,15 +53,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     console.warn('[Auth] Google Sign-In no configurado todavía');
   };
 
-  const signOut = async () => {
-    setDevBypass(false);
-    await supabase.auth.signOut();
+  const signInWithEmail = async (email: string, password: string) => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    return { error: error?.message ?? null };
   };
 
-  const enableDevBypass = () => {
-    if (__DEV__) {
-      setDevBypass(true);
+  const signUpWithEmail = async (email: string, password: string, name?: string) => {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { name: name ?? email.split('@')[0] } },
+    });
+
+    if (error) return { error: error.message };
+
+    // Insert user profile row after signup
+    if (data.user) {
+      await supabase.from('users').upsert({
+        id: data.user.id,
+        email,
+        name: name ?? email.split('@')[0],
+        auth_provider: 'email',
+      });
     }
+
+    return { error: null };
+  };
+
+  const signOut = async () => {
+    await supabase.auth.signOut();
   };
 
   return (
@@ -71,11 +90,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         session,
         user: session?.user ?? null,
         loading,
-        devBypass,
         signInWithApple,
         signInWithGoogle,
+        signInWithEmail,
+        signUpWithEmail,
         signOut,
-        enableDevBypass,
       }}
     >
       {children}

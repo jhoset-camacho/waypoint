@@ -1,7 +1,16 @@
-import { useRef, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, SafeAreaView } from 'react-native';
+import { useRef, useState, useCallback } from 'react';
+import {
+  View, Text, StyleSheet, SafeAreaView,
+  Pressable, FlatList, KeyboardAvoidingView,
+  Platform, ActivityIndicator,
+} from 'react-native';
 import PagerView from 'react-native-pager-view';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { MessageBubble } from '@/components/chat/MessageBubble';
+import { ChatInput } from '@/components/chat/ChatInput';
+import { useTrip } from '@/features/trips/useTrip';
+import { useMessages } from '@/features/chat/useMessages';
+import { useSendMessage } from '@/features/chat/useSendMessage';
 import { colors, spacing, typography } from '@/constants/theme';
 
 const TABS = [
@@ -16,19 +25,39 @@ export default function TripWorkspace() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState(0);
   const pagerRef = useRef<PagerView>(null);
+  const flatListRef = useRef<FlatList>(null);
+
+  const { data: trip } = useTrip(id);
+  const { data: messages, isLoading: messagesLoading } = useMessages(id);
+  const { mutate: sendMessage, isPending: sending } = useSendMessage();
 
   const goToTab = (index: number) => {
     setActiveTab(index);
     pagerRef.current?.setPage(index);
   };
 
+  const handleSend = useCallback((content: string) => {
+    sendMessage({ tripId: id, content });
+  }, [id, sendMessage]);
+
+  // Auto-scroll when messages change
+  const handleContentSizeChange = useCallback(() => {
+    if (messages?.length) {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    }
+  }, [messages?.length]);
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backButton}>
+        <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={12}>
           <Text style={styles.backText}>‹ Viajes</Text>
         </Pressable>
+        <Text style={styles.headerTitle} numberOfLines={1}>
+          {trip?.title ?? '...'}
+        </Text>
+        <View style={styles.headerRight} />
       </View>
 
       {/* Tab bar */}
@@ -39,12 +68,7 @@ export default function TripWorkspace() {
             style={styles.tabItem}
             onPress={() => goToTab(index)}
           >
-            <Text
-              style={[
-                styles.tabLabel,
-                activeTab === index && styles.tabLabelActive,
-              ]}
-            >
+            <Text style={[styles.tabLabel, activeTab === index && styles.tabLabelActive]}>
               {tab.label}
             </Text>
             {activeTab === index && <View style={styles.tabIndicator} />}
@@ -52,31 +76,55 @@ export default function TripWorkspace() {
         ))}
       </View>
 
-      {/* Content */}
+      {/* Content pages */}
       <PagerView
         ref={pagerRef}
         style={styles.pager}
         initialPage={0}
         onPageSelected={(e) => setActiveTab(e.nativeEvent.position)}
       >
+        {/* Chat */}
         <View key="chat" style={styles.page}>
-          <Text style={styles.pageTitle}>Chat</Text>
-          <Text style={styles.pageHint}>Aquí conversarás con tu asistente de viaje</Text>
+          <KeyboardAvoidingView
+            style={styles.flex}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={0}
+          >
+            {messagesLoading ? (
+              <View style={styles.center}>
+                <ActivityIndicator color={colors.primary} />
+              </View>
+            ) : (
+              <FlatList
+                ref={flatListRef}
+                data={messages}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => <MessageBubble message={item} />}
+                contentContainerStyle={styles.messageList}
+                onContentSizeChange={handleContentSizeChange}
+                onLayout={handleContentSizeChange}
+              />
+            )}
+            <ChatInput onSend={handleSend} disabled={sending} />
+          </KeyboardAvoidingView>
         </View>
 
-        <View key="map" style={styles.page}>
-          <Text style={styles.pageTitle}>Mapa</Text>
-          <Text style={styles.pageHint}>Aquí verás tus lugares en el mapa</Text>
+        {/* Mapa */}
+        <View key="map" style={styles.placeholder}>
+          <Text style={styles.placeholderTitle}>Mapa</Text>
+          <Text style={styles.placeholderHint}>Disponible en F3</Text>
         </View>
 
-        <View key="plan" style={styles.page}>
-          <Text style={styles.pageTitle}>Plan</Text>
-          <Text style={styles.pageHint}>Aquí organizarás tu itinerario por días</Text>
+        {/* Plan */}
+        <View key="plan" style={styles.placeholder}>
+          <Text style={styles.placeholderTitle}>Plan</Text>
+          <Text style={styles.placeholderHint}>Disponible en F4</Text>
         </View>
 
-        <View key="notes" style={styles.page}>
-          <Text style={styles.pageTitle}>Notas</Text>
-          <Text style={styles.pageHint}>Aquí guardarás información importante del viaje</Text>
+        {/* Notas */}
+        <View key="notes" style={styles.placeholder}>
+          <Text style={styles.placeholderTitle}>Notas</Text>
+          <Text style={styles.placeholderHint}>Disponible en F5</Text>
         </View>
       </PagerView>
     </SafeAreaView>
@@ -88,18 +136,32 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  flex: {
+    flex: 1,
+  },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
   backButton: {
-    alignSelf: 'flex-start',
+    width: 80,
   },
   backText: {
     ...typography.body,
     color: colors.primary,
+  },
+  headerTitle: {
+    flex: 1,
+    ...typography.bodyBold,
+    color: colors.text,
+    textAlign: 'center',
+  },
+  headerRight: {
+    width: 80,
   },
   tabBar: {
     flexDirection: 'row',
@@ -134,18 +196,29 @@ const styles = StyleSheet.create({
   },
   page: {
     flex: 1,
+  },
+  center: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  messageList: {
+    paddingVertical: spacing.md,
+    flexGrow: 1,
+    justifyContent: 'flex-end',
+  },
+  placeholder: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     gap: spacing.sm,
   },
-  pageTitle: {
+  placeholderTitle: {
     ...typography.h2,
     color: colors.text,
   },
-  pageHint: {
+  placeholderHint: {
     ...typography.body,
     color: colors.textSecondary,
-    textAlign: 'center',
-    paddingHorizontal: spacing.lg,
   },
 });

@@ -1,40 +1,76 @@
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { useState } from 'react';
+import {
+  View, Text, StyleSheet, FlatList,
+  Pressable, ActivityIndicator,
+} from 'react-native';
 import { useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
+import { TripCard } from '@/components/trips/TripCard';
+import { CreateTripModal } from '@/components/trips/CreateTripModal';
+import { useTrips } from '@/features/trips/useTrips';
 import { colors, spacing, typography } from '@/constants/theme';
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { data: trips, isLoading, isError } = useTrips();
+  const [showCreate, setShowCreate] = useState(false);
+
+  const handleTripCreated = (tripId: string) => {
+    setShowCreate(false);
+    router.push(`/(app)/trip/${tripId}`);
+  };
 
   return (
     <Screen>
       <View style={styles.container}>
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyIcon}>✈️</Text>
-          <Text style={styles.emptyTitle}>
-            Aún no tienes viajes
-          </Text>
-          <Text style={styles.emptySubtitle}>
-            Crea tu primer viaje para empezar a planear
-          </Text>
-          <Button
-            title="Empezar a planear"
-            onPress={() => {
-              // TODO F1: crear viaje y navegar al workspace
-              router.push('/(app)/trip/demo');
-            }}
-            style={styles.createButton}
+        {isLoading ? (
+          <View style={styles.center}>
+            <ActivityIndicator color={colors.primary} />
+          </View>
+        ) : isError ? (
+          <View style={styles.center}>
+            <Text style={styles.errorText}>Error al cargar viajes</Text>
+          </View>
+        ) : (
+          <FlatList
+            data={trips}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <TripCard
+                trip={item}
+                onPress={() => router.push(`/(app)/trip/${item.id}`)}
+              />
+            )}
+            contentContainerStyle={styles.list}
+            ListEmptyComponent={
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyIcon}>✈️</Text>
+                <Text style={styles.emptyTitle}>Aún no tienes viajes</Text>
+                <Text style={styles.emptySubtitle}>
+                  Crea tu primer viaje para empezar a planear
+                </Text>
+              </View>
+            }
           />
-        </View>
+        )}
 
-        <Pressable
-          style={styles.profileLink}
-          onPress={() => router.push('/(app)/profile')}
-        >
-          <Text style={styles.profileText}>Perfil</Text>
-        </Pressable>
+        <View style={styles.footer}>
+          <Button title="+ Nuevo viaje" onPress={() => setShowCreate(true)} />
+          <Pressable
+            style={styles.profileLink}
+            onPress={() => router.push('/(app)/profile')}
+          >
+            <Text style={styles.profileText}>Perfil</Text>
+          </Pressable>
+        </View>
       </View>
+
+      <CreateTripModal
+        visible={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={handleTripCreated}
+      />
     </Screen>
   );
 }
@@ -42,12 +78,21 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingHorizontal: spacing.lg,
+  },
+  center: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  list: {
+    padding: spacing.lg,
+    flexGrow: 1,
   },
   emptyState: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingTop: spacing.xl * 2,
     gap: spacing.sm,
   },
   emptyIcon: {
@@ -62,17 +107,24 @@ const styles = StyleSheet.create({
     ...typography.body,
     color: colors.textSecondary,
     textAlign: 'center',
-    marginBottom: spacing.md,
   },
-  createButton: {
-    minWidth: 200,
+  footer: {
+    padding: spacing.lg,
+    paddingBottom: spacing.xl,
+    gap: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
   profileLink: {
-    paddingVertical: spacing.md,
     alignItems: 'center',
+    paddingVertical: spacing.xs,
   },
   profileText: {
     ...typography.body,
     color: colors.primary,
+  },
+  errorText: {
+    ...typography.body,
+    color: colors.error,
   },
 });

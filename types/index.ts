@@ -17,3 +17,4 @@ export type ItineraryItem = Tables['itinerary_items']['Row'];
 export type TripNote = Tables['trip_notes']['Row'];
 export type Attachment = Tables['attachments']['Row'];
 export type TripContext = Tables['trip_context']['Row'];
+export type Event = Tables['events']['Row'];
