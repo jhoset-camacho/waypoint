@@ -28,7 +28,11 @@ export function CreateTripModal({ visible, onClose, onCreated }: CreateTripModal
           onCreated(trip.id);
         },
         onError: (error) => {
-          Alert.alert('Error al crear viaje', error.message);
+          const raw = error.message ?? '';
+          const userMessage = raw.includes('foreign key') || raw.includes('violates')
+            ? 'No se pudo crear el viaje. Intenta cerrar sesión y volver a entrar.'
+            : 'Ocurrió un error al crear el viaje. Inténtalo de nuevo.';
+          Alert.alert('Error', userMessage);
         },
       },
     );
