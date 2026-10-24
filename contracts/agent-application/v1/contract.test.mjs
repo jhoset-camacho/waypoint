@@ -21,9 +21,44 @@ assert.equal(response.units.length, 2);
 
 const withOptionalFutureUnit = {
   ...baseTokyoResponseFixture,
-  units: [...baseTokyoResponseFixture.units, { id: "future", type: "future_unit", required: false }],
+  units: [...baseTokyoResponseFixture.units, {
+    id: "future", type: "future_unit", schema_version: "2.0",
+    visibility: "trip_shared", required: false, payload: { future: true },
+  }],
 };
 assert.equal(ResponseEnvelopeSchema.parse(withOptionalFutureUnit).units.length, 2);
+assert.throws(() => ResponseEnvelopeSchema.parse({
+  ...baseTokyoResponseFixture,
+  units: [{ required: false }],
+}));
+assert.throws(() => ResponseEnvelopeSchema.parse({
+  ...baseTokyoResponseFixture,
+  units: [{
+    id: "future", type: "future_unit", schema_version: "invalid",
+    visibility: "trip_shared", required: false, payload: {},
+  }],
+}));
+assert.throws(() => ResponseEnvelopeSchema.parse({
+  ...baseTokyoResponseFixture,
+  units: [{
+    id: "future", type: "future_unit", schema_version: "2.0",
+    visibility: "public", required: false, payload: {},
+  }],
+}));
+assert.throws(() => ResponseEnvelopeSchema.parse({
+  ...baseTokyoResponseFixture,
+  units: [{
+    id: "future", type: "future_unit", schema_version: "2.0",
+    visibility: "trip_shared", required: false,
+  }],
+}));
+assert.throws(() => ResponseEnvelopeSchema.parse({
+  ...baseTokyoResponseFixture,
+  units: [{
+    id: "future", type: "future_unit", schema_version: "2.0",
+    visibility: "trip_shared", payload: {},
+  }],
+}));
 assert.throws(() => ResponseEnvelopeSchema.parse({
   ...baseTokyoResponseFixture,
   units: [{ id: "bad", type: "action_proposal", schema_version: UNIT_SCHEMA_VERSION, visibility: "trip_shared", required: false, payload: {} }],
@@ -44,6 +79,27 @@ assert.throws(() => ActionDefinitionSchema.parse({
   ...proposal.action,
   payload: { place_id: "place_kiyosumi", start_date: "2027-02-14", end_date: "2027-02-01" },
 }));
+for (const invalidRange of [
+  { start_date: "2027-02-30", end_date: "2027-03-01" },
+  { start_date: "2027-13-01", end_date: "2028-01-01" },
+  { start_date: "2027-02-29", end_date: "2027-03-01" },
+]) {
+  assert.throws(() => ActionDefinitionSchema.parse({
+    ...proposal.action,
+    payload: { place_id: "place_kiyosumi", ...invalidRange },
+    expected_effects: [{
+      kind: "lodging_selection_created", place_id: "place_kiyosumi", ...invalidRange,
+    }],
+  }));
+}
+const leapYearRange = { start_date: "2028-02-29", end_date: "2028-03-01" };
+assert.equal(ActionDefinitionSchema.parse({
+  ...proposal.action,
+  payload: { place_id: "place_kiyosumi", ...leapYearRange },
+  expected_effects: [{
+    kind: "lodging_selection_created", place_id: "place_kiyosumi", ...leapYearRange,
+  }],
+}).payload.start_date, "2028-02-29");
 assert.throws(() => ActionDefinitionSchema.parse({
   ...proposal.action,
   expected_effects: [{ ...proposal.action.expected_effects[0], place_id: "place_other" }],
@@ -108,6 +164,14 @@ assert.throws(() => ResponseUnitSchema.parse({
   ...anaReferenceUnitFixture,
   source_refs: [{ id: "source_missing_author", kind: "user_reference", label: "Sin autora" }],
 }));
+assert.throws(() => ResponseUnitSchema.parse({
+  ...anaReferenceUnitFixture,
+  payload: { ...anaReferenceUnitFixture.payload, contributed_by_person_id: "person_jhoset" },
+}));
+assert.throws(() => ResponseUnitSchema.parse({
+  ...anaReferenceUnitFixture,
+  payload: { ...anaReferenceUnitFixture.payload, source_ref_ids: ["source_missing"] },
+}));
 
 assert.equal(ContractErrorSchema.parse(recoverableToolErrorFixture).retryable, true);
-console.log("PASS contrato V1 R1: acciones exactas, estados coherentes, compatibilidad y autoría");
+console.log("PASS contrato V1 R2: calendario, autoría y compatibilidad base válidos");

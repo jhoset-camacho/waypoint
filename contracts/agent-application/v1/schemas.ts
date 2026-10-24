@@ -4,7 +4,12 @@ export const CONTRACT_VERSION = "1.0.0" as const;
 export const UNIT_SCHEMA_VERSION = "1.0" as const;
 
 const id = z.string().min(1).max(160);
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
+  const [year, month, day] = value.split("-").map(Number);
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return month >= 1 && month <= 12 && day >= 1 && day <= daysInMonth[month - 1];
+}, "Invalid calendar date");
 const isoDateTime = z.string().datetime({ offset: true });
 const jsonObject = z.record(z.string(), z.unknown());
 
@@ -215,14 +220,29 @@ const PlaceSchema = z.object({
   address: z.string().optional(),
 }).strict();
 
-const UnitBaseSchema = z.object({
+const UnitBaseFields = {
   id,
-  schema_version: z.literal(UNIT_SCHEMA_VERSION),
   visibility: VisibilitySchema,
   required: z.boolean().default(true),
   source_refs: z.array(SourceRefSchema).optional(),
   confidence: ConfidenceSchema.optional(),
   available_actions: z.array(AvailableActionSchema).optional(),
+};
+const UnitBaseSchema = z.object({
+  ...UnitBaseFields,
+  schema_version: z.literal(UNIT_SCHEMA_VERSION),
+});
+const CompatibleUnitBaseSchema = z.object({
+  id,
+  type: id,
+  schema_version: z.string().regex(/^\d+\.\d+$/),
+  visibility: VisibilitySchema,
+  required: z.boolean(),
+  payload: z.unknown(),
+}).passthrough().superRefine((value, ctx) => {
+  if (!Object.prototype.hasOwnProperty.call(value, "payload")) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["payload"], message: "payload is required" });
+  }
 });
 const unit = <T extends z.ZodTypeAny>(type: string, payload: T) => UnitBaseSchema.extend({ type: z.literal(type), payload }).strict();
 
@@ -234,7 +254,7 @@ const ReferenceResultPayloadSchema = z.object({
   resolved_place_ids: z.array(id).default([]),
 }).strict();
 
-export const ResponseUnitSchema = z.discriminatedUnion("type", [
+const ResponseUnitDiscriminatedUnion = z.discriminatedUnion("type", [
   unit("message", z.object({ text: z.string().min(1), author: z.enum(["gustave", "person"]), person_id: id.optional() }).strict()),
   unit("structured_question", z.object({
     question_id: id,
@@ -253,7 +273,33 @@ export const ResponseUnitSchema = z.discriminatedUnion("type", [
   unit("orientation", jsonObject),
 ]);
 
-const KNOWN_UNIT_TYPES = new Set(ResponseUnitSchema.options.map((option) => option.shape.type.value));
+export const ResponseUnitSchema = ResponseUnitDiscriminatedUnion.superRefine((responseUnit, ctx) => {
+  if (responseUnit.type !== "reference_result") return;
+
+  const payload = ReferenceResultPayloadSchema.safeParse(responseUnit.payload);
+  if (!payload.success) return;
+  const sourceRefsById = new Map(responseUnit.source_refs?.map((sourceRef) => [sourceRef.id, sourceRef]) ?? []);
+  for (const [index, sourceRefId] of payload.data.source_ref_ids.entries()) {
+    const sourceRef = sourceRefsById.get(sourceRefId);
+    if (!sourceRef) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["payload", "source_ref_ids", index],
+        message: "source_ref_id must identify a present source_ref",
+      });
+      continue;
+    }
+    if (sourceRef.kind === "user_reference" && sourceRef.contributed_by_person_id !== payload.data.contributed_by_person_id) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["payload", "contributed_by_person_id"],
+        message: "reference result contributor must match its user source references",
+      });
+    }
+  }
+});
+
+const KNOWN_UNIT_TYPES = new Set(ResponseUnitDiscriminatedUnion.options.map((option) => option.shape.type.value));
 const RawResponseEnvelopeSchema = z.object({
   contract_version: z.literal(CONTRACT_VERSION),
   response_id: id,
@@ -268,14 +314,18 @@ const RawResponseEnvelopeSchema = z.object({
 export const ResponseEnvelopeSchema = RawResponseEnvelopeSchema.transform((envelope, ctx) => {
   const units: Array<z.infer<typeof ResponseUnitSchema>> = [];
   for (const rawUnit of envelope.units) {
+    const parsedBase = CompatibleUnitBaseSchema.safeParse(rawUnit);
+    if (!parsedBase.success) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Unit has invalid base metadata" });
+      return z.NEVER;
+    }
     const parsed = ResponseUnitSchema.safeParse(rawUnit);
     if (parsed.success) {
       units.push(parsed.data);
       continue;
     }
-    const objectUnit = typeof rawUnit === "object" && rawUnit !== null ? rawUnit as Record<string, unknown> : null;
-    const knownType = typeof objectUnit?.type === "string" && KNOWN_UNIT_TYPES.has(objectUnit.type);
-    const optionalUnknown = !knownType && objectUnit?.required === false;
+    const knownType = KNOWN_UNIT_TYPES.has(parsedBase.data.type);
+    const optionalUnknown = !knownType && parsedBase.data.required === false;
     if (!optionalUnknown) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
