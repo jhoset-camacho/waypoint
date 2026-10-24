@@ -59,6 +59,19 @@ const UserSourceRefSchema = z.object({
 }).strict();
 
 export const SourceRefSchema = z.discriminatedUnion("kind", [ExternalSourceRefSchema, UserSourceRefSchema]);
+const SourceRefsSchema = z.array(SourceRefSchema).superRefine((sourceRefs, ctx) => {
+  const seenIds = new Set<string>();
+  for (const [index, sourceRef] of sourceRefs.entries()) {
+    if (seenIds.has(sourceRef.id)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [index, "id"],
+        message: "source_ref.id must be unique within the unit",
+      });
+    }
+    seenIds.add(sourceRef.id);
+  }
+});
 
 export const AvailableActionSchema = z.object({
   action_type: ActionTypeSchema,
@@ -224,7 +237,7 @@ const UnitBaseFields = {
   id,
   visibility: VisibilitySchema,
   required: z.boolean().default(true),
-  source_refs: z.array(SourceRefSchema).optional(),
+  source_refs: SourceRefsSchema.optional(),
   confidence: ConfidenceSchema.optional(),
   available_actions: z.array(AvailableActionSchema).optional(),
 };

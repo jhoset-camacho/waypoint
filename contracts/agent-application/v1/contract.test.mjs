@@ -168,10 +168,44 @@ assert.throws(() => ResponseUnitSchema.parse({
   ...anaReferenceUnitFixture,
   payload: { ...anaReferenceUnitFixture.payload, contributed_by_person_id: "person_jhoset" },
 }));
+const jhosetSourceRef = {
+  id: "source_jhoset_blog", kind: "user_reference", label: "Blog compartido por Jhoset",
+  contributed_by_person_id: "person_jhoset", url: "https://example.com/jhoset-tokyo",
+};
+assert.throws(() => ResponseUnitSchema.parse({
+  ...anaReferenceUnitFixture,
+  source_refs: [...anaReferenceUnitFixture.source_refs, jhosetSourceRef],
+  payload: {
+    ...anaReferenceUnitFixture.payload,
+    source_ref_ids: [anaReferenceUnitFixture.source_refs[0].id, jhosetSourceRef.id],
+  },
+}));
 assert.throws(() => ResponseUnitSchema.parse({
   ...anaReferenceUnitFixture,
   payload: { ...anaReferenceUnitFixture.payload, source_ref_ids: ["source_missing"] },
 }));
+const duplicateJhosetSourceRef = {
+  ...anaReferenceUnitFixture.source_refs[0],
+  label: "Fuente duplicada de Jhoset",
+  contributed_by_person_id: "person_jhoset",
+};
+for (const source_refs of [
+  [anaReferenceUnitFixture.source_refs[0], duplicateJhosetSourceRef],
+  [duplicateJhosetSourceRef, anaReferenceUnitFixture.source_refs[0]],
+]) {
+  assert.throws(() => ResponseUnitSchema.parse({
+    ...anaReferenceUnitFixture,
+    source_refs,
+    payload: { ...anaReferenceUnitFixture.payload, contributed_by_person_id: "person_jhoset" },
+  }));
+}
+assert.throws(() => ResponseUnitSchema.parse({
+  ...anaReferenceUnitFixture,
+  source_refs: [
+    anaReferenceUnitFixture.source_refs[0],
+    { ...anaReferenceUnitFixture.source_refs[0], label: "Misma fuente repetida" },
+  ],
+}));
 
 assert.equal(ContractErrorSchema.parse(recoverableToolErrorFixture).retryable, true);
-console.log("PASS contrato V1 R2: calendario, autoría y compatibilidad base válidos");
+console.log("PASS contrato V1 R3: calendario, autoría, identidad de fuentes y compatibilidad base válidos");
