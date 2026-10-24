@@ -6,6 +6,7 @@
     "paths": {
       "@/*": ["./*"]
     },
+    "allowImportingTsExtensions": true,
     "ignoreDeprecations": "6.0"
   },
   "include": ["**/*.ts", "**/*.tsx", "supabase/types/**/*.ts"],
