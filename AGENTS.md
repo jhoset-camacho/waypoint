@@ -27,4 +27,3 @@
 - El front final se porta fielmente desde `prototipos/gustave-mvp-v2/` a React Native. Cambia la tecnología interna, no la dirección visual o de interacción.
 - V4 Plum `#311B33` es la referencia visual; producto, copy y flujos vigentes mandan sobre materiales históricos.
 - El trabajo nuevo sigue `PLAN_IMPLEMENTACION_MVP_GUSTAVE.md` y el plan de ola activo.
-

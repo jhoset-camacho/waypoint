@@ -43,4 +43,3 @@
 - [ ] This is the PR's declared turn in the wave
 - [ ] Merge is authorized for this risk level
 - [ ] Deploy, if any, is handled separately
-

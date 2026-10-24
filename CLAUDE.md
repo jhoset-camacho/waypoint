@@ -69,4 +69,3 @@ git diff --check
 ```
 
 Agregar pruebas focalizadas de contrato, migración, RLS, UI o Edge Functions. Compilar no acredita integración remota ni aceptación visual.
-
