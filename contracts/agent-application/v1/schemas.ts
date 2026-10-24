@@ -59,6 +59,8 @@ const UserSourceRefSchema = z.object({
 }).strict();
 
 export const SourceRefSchema = z.discriminatedUnion("kind", [ExternalSourceRefSchema, UserSourceRefSchema]);
+const hasDuplicateSourceRefIds = (sourceRefs: readonly { id: string }[]) =>
+  new Set(sourceRefs.map((sourceRef) => sourceRef.id)).size !== sourceRefs.length;
 const SourceRefsSchema = z.array(SourceRefSchema).superRefine((sourceRefs, ctx) => {
   const seenIds = new Set<string>();
   for (const [index, sourceRef] of sourceRefs.entries()) {
@@ -291,7 +293,10 @@ export const ResponseUnitSchema = ResponseUnitDiscriminatedUnion.superRefine((re
 
   const payload = ReferenceResultPayloadSchema.safeParse(responseUnit.payload);
   if (!payload.success) return;
-  const sourceRefsById = new Map(responseUnit.source_refs?.map((sourceRef) => [sourceRef.id, sourceRef]) ?? []);
+  const sourceRefs = responseUnit.source_refs ?? [];
+  if (hasDuplicateSourceRefIds(sourceRefs)) return;
+
+  const sourceRefsById = new Map(sourceRefs.map((sourceRef) => [sourceRef.id, sourceRef]));
   for (const [index, sourceRefId] of payload.data.source_ref_ids.entries()) {
     const sourceRef = sourceRefsById.get(sourceRefId);
     if (!sourceRef) {

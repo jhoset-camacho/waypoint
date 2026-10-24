@@ -189,23 +189,32 @@ const duplicateJhosetSourceRef = {
   label: "Fuente duplicada de Jhoset",
   contributed_by_person_id: "person_jhoset",
 };
+const expectedDuplicateIssues = [{
+  path: ["source_refs", 1, "id"],
+  message: "source_ref.id must be unique within the unit",
+}];
+const duplicateIssues = (source_refs) => {
+  const parsed = ResponseUnitSchema.safeParse({
+    ...anaReferenceUnitFixture,
+    source_refs,
+    payload: { ...anaReferenceUnitFixture.payload, contributed_by_person_id: "person_jhoset" },
+  });
+  assert.equal(parsed.success, false);
+  return parsed.error.issues.map(({ path, message }) => ({ path, message }));
+};
 for (const source_refs of [
   [anaReferenceUnitFixture.source_refs[0], duplicateJhosetSourceRef],
   [duplicateJhosetSourceRef, anaReferenceUnitFixture.source_refs[0]],
 ]) {
-  assert.throws(() => ResponseUnitSchema.parse({
-    ...anaReferenceUnitFixture,
-    source_refs,
-    payload: { ...anaReferenceUnitFixture.payload, contributed_by_person_id: "person_jhoset" },
-  }));
+  assert.deepEqual(duplicateIssues(source_refs), expectedDuplicateIssues);
 }
-assert.throws(() => ResponseUnitSchema.parse({
-  ...anaReferenceUnitFixture,
-  source_refs: [
+assert.deepEqual(
+  duplicateIssues([
     anaReferenceUnitFixture.source_refs[0],
     { ...anaReferenceUnitFixture.source_refs[0], label: "Misma fuente repetida" },
-  ],
-}));
+  ]),
+  expectedDuplicateIssues,
+);
 
 assert.equal(ContractErrorSchema.parse(recoverableToolErrorFixture).retryable, true);
-console.log("PASS contrato V1 R3: calendario, autoría, identidad de fuentes y compatibilidad base válidos");
+console.log("PASS contrato V1 R4: duplicados cortan procedencia sin regresiones");
