@@ -10,26 +10,18 @@ export const baseTokyoResponseFixture = {
   created_at: "2026-10-24T18:00:00.000Z",
   units: [
     {
-      id: "unit_summary_1",
-      type: "context_summary",
-      schema_version: UNIT_SCHEMA_VERSION,
-      visibility: "trip_shared",
-      required: true,
+      id: "unit_summary_1", type: "context_summary", schema_version: UNIT_SCHEMA_VERSION,
+      visibility: "trip_shared", required: true,
       payload: {
         summary: "Buscan una base tranquila en Tokio, cerca de un parque y comercio, compatible con la siesta de Lucian.",
         claim_ids: ["claim_park", "claim_calm", "claim_commerce"],
       },
     },
     {
-      id: "unit_question_1",
-      type: "structured_question",
-      schema_version: UNIT_SCHEMA_VERSION,
-      visibility: "trip_shared",
-      required: true,
+      id: "unit_question_1", type: "structured_question", schema_version: UNIT_SCHEMA_VERSION,
+      visibility: "trip_shared", required: true,
       payload: {
-        question_id: "question_park_distance",
-        prompt: "¿Qué pesa más para esta base?",
-        selection_mode: "single",
+        question_id: "question_park_distance", prompt: "¿Qué pesa más para esta base?", selection_mode: "single",
         options: [
           { id: "opt_walk", label: "Parque caminable" },
           { id: "opt_room", label: "Habitación amplia" },
@@ -54,7 +46,29 @@ export const lodgingProposalFixture = {
     affected_person_ids: ["person_jhoset", "person_carms", "person_lucian"],
     payload: { place_id: "place_kiyosumi", start_date: "2027-02-01", end_date: "2027-02-14" },
     preconditions: [{ kind: "trip_version", value: "trip-v3" }],
-    expected_effects: [{ kind: "lodging_selection_created", place_id: "place_kiyosumi" }],
+    expected_effects: [{
+      kind: "lodging_selection_created", place_id: "place_kiyosumi",
+      start_date: "2027-02-01", end_date: "2027-02-14",
+    }],
+  },
+} as const;
+
+export const anaReferenceUnitFixture = {
+  id: "unit_reference_ana",
+  type: "reference_result",
+  schema_version: UNIT_SCHEMA_VERSION,
+  visibility: "trip_shared",
+  required: true,
+  source_refs: [{
+    id: "source_ana_tiktok", kind: "user_reference", label: "Video compartido por Ana",
+    contributed_by_person_id: "person_ana", url: "https://example.com/ana-tokyo",
+  }],
+  payload: {
+    reference_id: "reference_ana_1",
+    contributed_by_person_id: "person_ana",
+    status: "resolved",
+    source_ref_ids: ["source_ana_tiktok"],
+    resolved_place_ids: ["place_kiyosumi"],
   },
 } as const;
 

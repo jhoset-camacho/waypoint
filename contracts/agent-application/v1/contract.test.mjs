@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
 import {
+  ActionDefinitionSchema,
   ActionEnvelopeSchema,
   ActionExecutionSchema,
   ContractErrorSchema,
   ProposalSchema,
   ResponseEnvelopeSchema,
+  ResponseUnitSchema,
+  UNIT_SCHEMA_VERSION,
 } from "./schemas.ts";
 import {
+  anaReferenceUnitFixture,
   baseTokyoResponseFixture,
   lodgingProposalFixture,
   recoverableToolErrorFixture,
@@ -14,14 +18,20 @@ import {
 
 const response = ResponseEnvelopeSchema.parse(baseTokyoResponseFixture);
 assert.equal(response.units.length, 2);
-assert.equal(response.units[0].type, "context_summary");
 
 const withOptionalFutureUnit = {
   ...baseTokyoResponseFixture,
   units: [...baseTokyoResponseFixture.units, { id: "future", type: "future_unit", required: false }],
 };
 assert.equal(ResponseEnvelopeSchema.parse(withOptionalFutureUnit).units.length, 2);
-
+assert.throws(() => ResponseEnvelopeSchema.parse({
+  ...baseTokyoResponseFixture,
+  units: [{ id: "bad", type: "action_proposal", schema_version: UNIT_SCHEMA_VERSION, visibility: "trip_shared", required: false, payload: {} }],
+}));
+assert.throws(() => ResponseEnvelopeSchema.parse({
+  ...baseTokyoResponseFixture,
+  units: [{ ...anaReferenceUnitFixture, schema_version: "2.0", required: false }],
+}));
 assert.throws(() => ResponseEnvelopeSchema.parse({
   ...baseTokyoResponseFixture,
   units: [{ id: "future", type: "future_unit", required: true }],
@@ -29,11 +39,36 @@ assert.throws(() => ResponseEnvelopeSchema.parse({
 
 const proposal = ProposalSchema.parse(lodgingProposalFixture);
 assert.equal(proposal.action.action_type, "lodging.select");
-assert.deepEqual(proposal.action.payload, {
-  place_id: "place_kiyosumi",
-  start_date: "2027-02-01",
-  end_date: "2027-02-14",
+assert.throws(() => ActionDefinitionSchema.parse({ ...proposal.action, payload: {} }));
+assert.throws(() => ActionDefinitionSchema.parse({
+  ...proposal.action,
+  payload: { place_id: "place_kiyosumi", start_date: "2027-02-14", end_date: "2027-02-01" },
+}));
+assert.throws(() => ActionDefinitionSchema.parse({
+  ...proposal.action,
+  expected_effects: [{ ...proposal.action.expected_effects[0], place_id: "place_other" }],
+}));
+assert.throws(() => ActionDefinitionSchema.parse({
+  ...proposal.action,
+  action_type: "plan.apply_proposal",
+  scope: "trip_shared",
+  payload: {},
+  expected_effects: [{ kind: "plan_items_applied", plan_proposal_id: "plan_1" }],
+}));
+const planAction = ActionDefinitionSchema.parse({
+  action_type: "plan.apply_proposal",
+  action_version: "1.0",
+  scope: "trip_shared",
+  affected_person_ids: ["person_jhoset", "person_carms"],
+  payload: { plan_proposal_id: "plan_ginza_1" },
+  preconditions: [{ kind: "plan_version", value: "plan-v2" }],
+  expected_effects: [{ kind: "plan_items_applied", plan_proposal_id: "plan_ginza_1" }],
 });
+assert.equal(planAction.payload.plan_proposal_id, "plan_ginza_1");
+assert.throws(() => ActionDefinitionSchema.parse({
+  ...planAction,
+  expected_effects: [{ kind: "plan_items_applied", plan_proposal_id: "plan_other" }],
+}));
 
 const action = ActionEnvelopeSchema.parse({
   ...proposal.action,
@@ -50,18 +85,29 @@ const stale = ActionExecutionSchema.parse({
   action_id: action.action_id,
   status: "failed",
   canonical_changes: [],
-  error: {
-    code: "stale_proposal",
-    message: "El viaje cambió después de mostrar la propuesta.",
-    retryable: false,
-    safe_context: { current_version: "trip-v4" },
-  },
+  error: { code: "stale_proposal", message: "El viaje cambió.", retryable: false },
 });
 assert.equal(stale.canonical_changes.length, 0);
-assert.equal(stale.error.code, "stale_proposal");
+assert.throws(() => ActionExecutionSchema.parse({
+  ...stale,
+  canonical_changes: [{ kind: "lodging_changed" }],
+}));
+assert.throws(() => ActionExecutionSchema.parse({
+  action_id: action.action_id,
+  status: "succeeded",
+  canonical_changes: [],
+  resulting_state_version: "trip-v4",
+  error: recoverableToolErrorFixture,
+}));
+assert.throws(() => ActionExecutionSchema.parse({ action_id: "act_bad", status: "uncertain", canonical_changes: [] }));
+
+const anaReference = ResponseUnitSchema.parse(anaReferenceUnitFixture);
+assert.equal(anaReference.payload.contributed_by_person_id, "person_ana");
+assert.equal(anaReference.source_refs[0].contributed_by_person_id, "person_ana");
+assert.throws(() => ResponseUnitSchema.parse({
+  ...anaReferenceUnitFixture,
+  source_refs: [{ id: "source_missing_author", kind: "user_reference", label: "Sin autora" }],
+}));
 
 assert.equal(ContractErrorSchema.parse(recoverableToolErrorFixture).retryable, true);
-assert.throws(() => ActionExecutionSchema.parse({ action_id: "act_bad", status: "uncertain" }));
-
-console.log("PASS contrato V1: envelope, compatibilidad, propuesta exacta, stale y error recuperable");
-
+console.log("PASS contrato V1 R1: acciones exactas, estados coherentes, compatibilidad y autoría");
