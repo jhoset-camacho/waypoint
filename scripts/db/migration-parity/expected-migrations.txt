@@ -1,0 +1,9 @@
+supabase/migrations/00000000000001_initial_schema.sql
+supabase/migrations/00000000000002_rls_policies.sql
+supabase/migrations/00000000000003_trip_context_fk.sql
+supabase/migrations/00000000000004_f1_events_realtime.sql
+supabase/migrations/00000000000005_auto_create_public_user.sql
+supabase/migrations/00000000000006_f1_5_trips_mood_tags.sql
+supabase/migrations/00000000000007_realtime_publication.sql
+supabase/migrations/00000000000008_itinerary_realtime.sql
+supabase/migrations/00000000000009_places_dedupe.sql
