@@ -21,7 +21,11 @@ enabled = false
 [storage]
 enabled = true
 [auth]
-enabled = false
+enabled = true
+site_url = "http://127.0.0.1:56321"
+[auth.email]
+enable_signup = true
+enable_confirmations = false
 [realtime]
 enabled = false
 [edge_runtime]
