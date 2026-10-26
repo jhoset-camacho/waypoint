@@ -33,7 +33,9 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "test:contracts": "node --experimental-strip-types contracts/agent-application/v1/contract.test.mjs"
+    "test:contracts": "node --experimental-strip-types contracts/agent-application/v1/contract.test.mjs",
+    "test:db": "bash scripts/db/harness/run.sh",
+    "test:db:harness": "bash scripts/db/harness/selftest.sh"
   },
   "private": true
 }

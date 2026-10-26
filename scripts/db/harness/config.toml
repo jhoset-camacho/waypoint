@@ -1,0 +1,30 @@
+# The runner supplies a unique project_id; never copy the linked project config.
+project_id = "replaced-by-runner"
+[api]
+enabled = true
+port = 56321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+[db]
+port = 56322
+shadow_port = 56320
+major_version = 17
+health_timeout = "2m"
+[db.migrations]
+enabled = false
+[db.seed]
+enabled = false
+[studio]
+enabled = false
+[inbucket]
+enabled = false
+[storage]
+enabled = true
+[auth]
+enabled = false
+[realtime]
+enabled = false
+[edge_runtime]
+enabled = false
+[analytics]
+enabled = false
