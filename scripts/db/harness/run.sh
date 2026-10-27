@@ -58,15 +58,13 @@ reset_local() {
 }
 psql_local() { docker exec -i "$container" psql -X -U postgres -d postgres -v ON_ERROR_STOP=1; }
 reset_local
-for sql in "$root"/scripts/db/harness/sql/*.sql; do
+for sql in "$work"/core-sql/*.sql; do
+  node "$root/scripts/db/harness/plan.mjs" --check-sql "$work" "core-sql/$(basename "$sql")" || exit 20
   if ! psql_local < "$sql" >"$work/sql.log" 2>&1; then fail sql 'Historical SQL verification failed' 30; fi
 done
 echo '[database:baseline] PASS: independent 001–009 reconstruction and historical SQL'
 if [[ $scenario == baseline ]]; then exit 0; fi
-for candidate in "$work"/candidates/*.sql; do
-  [[ -f $candidate ]] || continue
-  cp "$candidate" "$work/supabase/migrations/"
-done
+node "$root/scripts/db/harness/plan.mjs" --stage-candidates "$work" || exit 20
 reset_local
 # Exact replay order must match the plan, including zero candidates.
 if ! docker exec "$container" psql -X -U postgres -d postgres -At -c 'select version from supabase_migrations.schema_migrations order by version' >"$work/versions.txt" 2>"$work/sql.log"; then fail migration 'Cannot inspect applied history' 20; fi

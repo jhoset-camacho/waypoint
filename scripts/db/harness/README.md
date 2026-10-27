@@ -22,8 +22,24 @@ Other entries in `supabase/migrations/` must be regular files named
 `<14-digit-version>_<lowercase_name>.sql`, version greater than 00000000000009,
 with unique versions. Historical 010, 011 and 20260925172808 are explicitly
 rejected. Names and versions are sorted bytewise; malformed/unexpected entries,
-including symlinks, fail closed. Candidate SQL is trusted reviewed migration code,
+including symlinks in controlled file or directory components, fail closed. Candidate SQL is trusted reviewed migration code,
 not statically proven nondestructive; the harness does not certify additive semantics.
+
+R1 canonicalizes the checkout anchor first, then uses `lstat` and `realpath` on
+**every controlled component below it**, including `supabase`, `migrations`,
+SQL/fixture directories and individual files. Baseline and checkout candidates
+must remain inside the verified canonical migration root. The host's ordinary
+ancestor aliases (macOS `/var` to `/private/var`) are normalized at the anchor;
+internal links, traversal, unexpected absolute paths and noncanonical components
+are rejected with **20**, before copying SQL.
+
+Temporary candidate snapshots use a separate explicit sandbox, never a root
+selected implicitly from an environment variable. It must be a real private
+`wp-g1-p02a.<random>` directory owned by the current UID with the runner's matching
+owner marker. Its internal directories/files are checked the same way. Before
+staging candidates into the disposable migration directory, the runner rechecks
+containment and snapshot hashes. Core SQL is also checked, snapshotted and
+rechecked immediately before execution. Copy destinations are exclusive.
 
 The runner snapshots baseline and candidates into private temporary directories.
 First it reconstructs **only 001–009** and runs the original strict historical SQL
@@ -36,17 +52,26 @@ not a stateful upgrade/backfill test; domain suites must add those assertions.
 
 ## Module protocol v1
 
-Only explicit manifests `scripts/db/<module>/db-suite.json` opt into discovery.
-The module name must match `[a-z][a-z0-9-]*`. Core directories `harness` and
-`migration-parity` are excluded. Example for a future module (none created here):
+Every nonreserved entry in `scripts/db/` declares a module. The only reserved
+system directories there are **harness** and **migration-parity**. A module must
+be a real nonlinked directory with name matching `^[a-z][a-z0-9-]*$`, containing
+one regular `db-suite.json` manifest. A missing/corrupt manifest, invalid name,
+file in place of a directory, link (including dangling links), or unsupported
+structure fails **30**; none can silently disappear as `NONE`. Link targets are
+never inspected to decide whether a linked entry is a module. Temporary fixture
+modules follow the same rules, and duplicate names across roots fail **30**.
+
+Example for a future module (none created here):
 
 ```json
 {"version":1,"setup":["fixtures.setup.sql"],"tests":["permissions.test.mjs","shape.test.sql"]}
 ```
 
-- Modules and file lists run in bytewise sorted order; duplicate paths, empty tests,
+- Module names across both roots and file lists run in bytewise sorted order; duplicate paths, empty tests,
   unknown manifest keys, invalid version, absolute/traversing paths, symlinks and
-  escaped realpaths fail **30**. Only named `.setup.sql`, `.test.sql`, `.test.mjs`
+  escaped realpaths fail **30**. Every controlled component is checked, including
+  intermediate test directories, and paths are checked again before read/import.
+  Paths differing only in case are rejected as ambiguous. Only named `.setup.sql`, `.test.sql`, `.test.mjs`
   regular files run; unrelated files never execute automatically.
 - Setup SQL executes first as local postgres, solely for fixtures. SQL tests use
   `psql -X -v ON_ERROR_STOP=1` and must explicitly choose roles if testing SQL RLS.
@@ -65,7 +90,7 @@ The module name must match `[a-z][a-z0-9-]*`. Core directories `harness` and
 - No service-role API is supplied. Signup/password flow needs only anon. The
   service key returned by local CLI status is deliberately ignored; no test
   credits a privileged read/write as RLS proof. Never use user_metadata for auth.
-- No suites prints `NONE`, succeeds after Auth/HTTP smoke, and is distinct from a
+- Genuine absence of nonreserved entries prints `NONE`, succeeds after Auth/HTTP smoke, and is distinct from a
   discovered suite failure. Any discovery/setup/test/Auth/Data API failure is **30**.
 - Suites are trusted repository code, not an adversarial sandbox. Their privileged
   SQL helper can alter the test DB, so review must enforce fixture-only privilege
@@ -113,6 +138,16 @@ codes are folded into 20; the required 20/30/0 meanings remain explicit.
 
 ## Self-test evidence
 
+The original nine scenarios are nominal evidence; they did **not** cover the
+parent-directory SQL escape or silently omitted modules found by independent
+review. R1 adds planner path/sandbox regressions, actual macOS root-alias positives,
+strict discovery/execution regressions and real-runner reproductions of both
+review exploits **before** retaining the nine nominal scenarios. The real external
+migration attack must fail **20** before database startup, so
+`public.harness_external_marker` cannot be created; the linked failing module must
+fail discovery with **30**, not disappear as `NONE`, and must never execute its
+external marker code. Both real-runner tests require cleanup PASS.
+
 Scenarios: modified baseline 20, incomplete baseline 20, baseline-only 0, valid
 candidate 0, invalid candidate 20, valid discovered module 0, invalid discovered
 module 30, invalid SQL 30, final complete reconstruction 0. Valid module proves
@@ -127,6 +162,13 @@ code from an earlier failure.
 The self-test compares the tracked diff against HEAD before/after, including staged
 changes, so it can run while developing without requiring commits. CI starts clean.
 No source file is edited by any scenario.
+
+The R1 checks close static filesystem path/structure escapes. Repository suites
+remain trusted executable code. They do not provide a hostile-host sandbox or an
+atomic filesystem snapshot against a concurrent same-UID process replacing
+ancestors between a check and an OS read/import. Real macOS `/var` alias tests run
+locally on macOS; Ubuntu reports that platform-specific case as SKIP and runs the
+portable containment cases. SIGKILL/host-failure cleanup limitations remain.
 
 ## CI and official research (2026-10-26)
 

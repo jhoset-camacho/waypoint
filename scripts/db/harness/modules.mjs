@@ -1,39 +1,18 @@
-import {readFileSync, readdirSync, lstatSync, realpathSync, existsSync} from 'node:fs';
-import {join, resolve, sep} from 'node:path';
-import {pathToFileURL} from 'node:url';
+import {readFileSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
 import assert from 'node:assert/strict';
-const [root, work, container, scenario] = process.argv.slice(2);
+import {ownedSandbox,inside} from './paths.mjs';
+import {discoverSuites,executeSuites} from './discovery.mjs';
+const [root, workInput, container] = process.argv.slice(2);
 const sql = text => execFileSync('docker', ['exec','-i',container,'psql','-X','-U','postgres','-d','postgres','-v','ON_ERROR_STOP=1','-At'], {input:text, encoding:'utf8', stdio:['pipe','pipe','pipe']});
-const suites = [];
-let stage = "discovery";
+let stage = 'discovery';
 try {
-  for (const db of [join(root,'scripts/db'),join(work,'modules')].filter(existsSync).map(p=>realpathSync(p))) {
-  for (const entry of readdirSync(db).sort()) {
-    if (['harness','migration-parity'].includes(entry)) continue;
-    const dir = join(db, entry);
-    if (!lstatSync(dir).isDirectory() || !/^[a-z][a-z0-9-]*$/.test(entry)) continue;
-    const manifest = join(dir, 'db-suite.json');
-    if (!readdirSync(dir).includes('db-suite.json')) continue;
-    if (!lstatSync(manifest).isFile()) throw Error('manifest must be regular');
-    const spec = JSON.parse(readFileSync(manifest, 'utf8'));
-    if (spec.version !== 1 || !Array.isArray(spec.tests) || !spec.tests.length || Object.keys(spec).some(k=>!['version','tests','setup'].includes(k))) throw Error('suite contract');
-    const files = (list, setup) => {
-      if (!Array.isArray(list) || new Set(list).size !== list.length) throw Error('suite files');
-      return [...list].sort().map(p => {
-        if (typeof p !== 'string' || !/^[a-zA-Z0-9_./-]+$/.test(p) || p.split('/').some(x=>!x || x==='..' || x==='.') || !(setup ? p.endsWith('.setup.sql') : /\.test\.(sql|mjs)$/.test(p))) throw Error('suite filename');
-        const file = resolve(dir, p);
-        if (!lstatSync(file).isFile() || realpathSync(file) !== file || !file.startsWith(realpathSync(dir)+sep)) throw Error('suite path escape/symlink');
-        return file;
-      });
-    };
-    suites.push({name:entry, setup:files(spec.setup ?? [], true), tests:files(spec.tests, false)});
-  }
-  }
+  const work=ownedSandbox(workInput);
+  const suites=discoverSuites(root,work);
   console.log(`[database:modules] ${suites.length ? suites.map(s=>s.name).join(', ') : 'NONE (no db-suite.json manifests)'}`);
   stage = 'local-status';
-  const status = JSON.parse(readFileSync(join(work,'status.json'),'utf8'));
+  const status = JSON.parse(readFileSync(inside(work,'status.json'),'utf8'));
   // Deliberately ignore service_role entirely; signup + password grant need only anon.
   const anon = status.ANON_KEY;
   assert.equal(typeof anon, 'string');
@@ -83,13 +62,8 @@ try {
   }
   console.log('[database:api] PASS: real local Data API requests for anon and both users');
   for (const suite of suites) {
-    stage = 'module-' + suite.name;
-    for (const file of suite.setup) sql(readFileSync(file,'utf8'));
-    for (const file of suite.tests) {
-      if (file.endsWith('.sql')) sql(readFileSync(file,'utf8'));
-      else await (await import(pathToFileURL(file).href)).default(Object.freeze({sql,api,createUser,users:Object.freeze(users)}));
-    }
-    console.log(`[database:module] PASS: ${suite.name}`);
+    stage='module-'+suite.name;
+    await executeSuites([suite],Object.freeze({sql,api,createUser,users:Object.freeze(users)}),sql);
   }
 } catch {
   // Never render exception objects, SQL output, HTTP bodies or sessions.

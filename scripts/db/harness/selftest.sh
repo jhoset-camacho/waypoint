@@ -5,6 +5,8 @@ root=$(cd "$here/../../.." && pwd)
 # Compare the entire tracked diff, including staged changes; works before commit too.
 before=$(git -C "$root" diff HEAD --binary | shasum -a 256)
 node "$here/plan.test.mjs"
+node "$here/discovery.test.mjs"
+node "$here/adversarial-integration.mjs"
 cleanup_failed=0
 for scenario in modified-baseline missing-baseline baseline valid-candidate invalid-migration valid-module invalid-module invalid-sql verify; do
   expected=0
