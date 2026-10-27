@@ -198,3 +198,39 @@ Official sources consulted:
 
 Rollback: revert this harness PR, keep P03 blocked. No remote state changes.
 Governance: G1 plan, ADR-WP-0001/0002/0004, persistence/RLS contract 1.0.0.
+
+## F1: structural classification before infrastructure
+
+After migration planning, the runner calls `prepare-modules.mjs`, using the same
+`discoverSuites` implementation as execution tests. It validates all declared
+module paths/manifests and copies only declared setup/test files into a private
+`suite-snapshot`. Nested declared paths are preserved. Execution rediscovers that
+snapshot, rechecking containment, after both database rebuilds. Relative imports
+must refer to declared files in that snapshot; undeclared checkout files are not
+copied. Repository suites remain trusted code.
+
+Invalid/linked modules now return **30 before Docker/CLI preflight and startup**.
+External migration SQL still returns **20** from planning first. A valid module
+still requires the real infrastructure and retains startup/rebuild **20**, suite
+assertion **30**, and cleanup precedence. No-module snapshots remain valid/NONE.
+
+The original post-merge log suppressed the child output, so its specific early
+20 cannot be attributed retrospectively to a port, startup or reset failure.
+The ordering defect is independently reproducible: an occupied database port
+makes the original linked-module runner return startup **20**, masking discovery.
+Free-port local reproduction can return the intended **30** on the original code.
+F1 removes that infrastructure dependency, rather than changing the expectation.
+
+Mismatch diagnostics include scenario, received/expected exit, last reported
+stage, child stdout/stderr and cleanup status. Private CLI logs survive through
+cleanup and emit only bounded infrastructure error lines after filtering sensitive
+lines and opaque values; status JSON, HTTP bodies and credential files are never
+printed or uploaded. All private logs are removed on exit. Sanitization is also
+applied to self-test output; modules must still honor the no-secret logging rule.
+
+F1 regressions run a linked-module attack in isolation, after external SQL and
+repeatedly, from copies with spaces. A real occupied socket proves startup **20**
+for valid input and discovery **30** for linked input. Snapshot execution after
+removing the checkout module and rejection of a late snapshot symlink are tested.
+A simulated mismatch prints sanitized diagnostic evidence. The nine original
+scenarios, Auth/JWT/HTTP checks and path/alias regressions remain mandatory.
