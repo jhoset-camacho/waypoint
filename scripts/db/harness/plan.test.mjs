@@ -23,7 +23,9 @@ for(const [name,mutate] of Object.entries(scenarios)) {
   const temp=mkdtempSync(join(tmpdir(),'wp-p02a-plan-'));
   try {
     const source=join(temp,'source'), work=join(temp,'work'); mkdirSync(work);
-    for(const dir of ['supabase/migrations','scripts/db/harness','scripts/db/migration-parity']) {mkdirSync(join(source,dir),{recursive:true});cpSync(join(root,dir),join(source,dir),{recursive:true});}
+    for(const dir of ['scripts/db/harness','scripts/db/migration-parity']) {mkdirSync(join(source,dir),{recursive:true});cpSync(join(root,dir),join(source,dir),{recursive:true});}
+    mkdirSync(join(source,'supabase/migrations'),{recursive:true});
+    for(const path of expected) cpSync(join(root,path),join(source,path));
     mutate(source);
     const result=spawnSync('node',[join(root,'scripts/db/harness/plan.mjs'),source,work],{encoding:'utf8'});
     assert.equal(result.status,['baseline','orderedCandidates'].includes(name)?0:20,name);
