@@ -244,7 +244,9 @@ without it CLI defaults to public ECR. CI retains that upstream selection and
 uses the built-in ephemeral `GITHUB_TOKEN`, `contents: read` and `packages: read`
 to log into GHCR through stdin (no tracing). Docker config lives in a private
 runner-temporary directory and is logged out/deleted in an `always()` step.
-The token is scoped to the login step, never passed to suites or Supabase.
+The token environment variable is scoped to the login step. The CLI reads
+Docker's private config to authenticate image pulls; no token environment
+variable is passed to suites or CLI commands.
 No manual secret, hosted Supabase credential, image artifact or image cache is added.
 
 Startup diagnostics distinguish `ports-occupied`, `registry-rate-limit`,
