@@ -2,6 +2,11 @@
 set -euo pipefail
 umask 077
 root=$(cd "$(dirname "$0")/../../.." && pwd)
+# Reject credential-bearing invocations before any child program is executed.
+for key in GITHUB_TOKEN GHCR_TOKEN GH_TOKEN DOCKER_AUTH_CONFIG REGISTRY_AUTH_FILE; do
+  [[ -z ${!key+x} ]] || { echo '[database:registry-isolation] FAIL: credential environment input' >&2; exit 20; }
+done
+node "$root/scripts/db/harness/credentials.mjs" --check || exit 20
 scenario=${1:-verify}
 case "$scenario" in verify|baseline|modified-baseline|missing-baseline|valid-candidate|invalid-migration|invalid-sql|valid-module|invalid-module) ;; *) exit 20 ;; esac
 fail() { echo "[database:$1] FAIL: $2" >&2; exit "$3"; }

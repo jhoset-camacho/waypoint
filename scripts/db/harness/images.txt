@@ -1,0 +1,5 @@
+ghcr.io/supabase/postgres:17.6.1.134
+ghcr.io/supabase/kong:2.8.1
+ghcr.io/supabase/postgrest:v14.13
+ghcr.io/supabase/gotrue:v2.189.0
+ghcr.io/supabase/storage-api:v1.60.15

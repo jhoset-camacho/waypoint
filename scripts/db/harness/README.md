@@ -236,34 +236,61 @@ A simulated mismatch prints sanitized diagnostic evidence. The nine original
 scenarios, Auth/JWT/HTTP checks and path/alias regressions remain mandatory.
 
 
-### Registry availability (F1)
+### Registry availability and credential separation (F1 R1)
 
-CLI stays at 2.106.0. Its pinned setup action exports the internal
-`SUPABASE_INTERNAL_IMAGE_REGISTRY=ghcr.io` mirror override for this version;
-without it CLI defaults to public ECR. CI retains that upstream selection and
-uses the built-in ephemeral `GITHUB_TOKEN`, `contents: read` and `packages: read`
-to log into GHCR through stdin (no tracing). Docker config lives in a private
-runner-temporary directory and is logged out/deleted in an `always()` step.
-The token environment variable is scoped to the login step. The CLI reads
-Docker's private config to authenticate image pulls; no token environment
-variable is passed to suites or CLI commands.
-No manual secret, hosted Supabase credential, image artifact or image cache is added.
+CLI remains 2.106.0. `images.txt` contains the five explicit GHCR image tags
+resolved from immutable CLI commit `bd39bcf5e613be87943f8bb8fe4ce75c8dfd84de`.
+`images.mjs --upstream` verifies SHA-256 of its Dockerfile, service configuration, bootstrap jobs
+and registry resolver, resolves pg/kong/postgrest/gotrue/storage, compares the full
+manifest and pins this harness config. Storage is excluded as a permanent
+service, but CLI initSchema15 still needs its image for schema initialization. Startup exclusions are shared with that
+module. A changed config/source/manifest requires review instead of guessing tags.
 
-Startup diagnostics distinguish `ports-occupied`, `registry-rate-limit`,
-`image-unavailable` (including missing tags/platforms and denied access),
-`docker-unavailable` and `other-startup`. Only recognized registry pull rate
-limits (`toomanyrequests`, 429 or explicit rate-limit response) retry: at most
-three starts, with 15/30 second backoff. A permanent/logical error takes precedence
-in mixed output. Before each retry the owned project is stopped without backup
-and its containers, volumes and network must be absent. Cleanup failure stops
-retrying. Final failure stays 20, with a sanitized exhaustion diagnostic and the
-normal final cleanup. Migration/reset, SQL, Auth, authorization, discovery and
-tests remain outside the retry loop. No whole matrix or CI job is retried by code.
+CI phases are strictly ordered:
 
-The CLI uses `PullPolicyMissing` and image inspection; exact images already
-present can be reused. Prefetch/cache is therefore unnecessary for this fix.
-Authentication and bounded retries mitigate availability; they do not guarantee
-that GHCR will always serve pulls or that quotas are isolated by runner/account.
-Focused tests invoke the production retry controller with deterministic local
-callbacks, without contacting a registry or sleeping; full selftest then exercises
-the actual startup and cleanup commands.
+1. Check pinned manifest provenance without a token or Supabase execution.
+2. `prefetch.sh` uses a fresh private Docker config, built-in GITHUB_TOKEN via
+   stdin, and explicit pulls/inspection of every manifest image. It never runs
+   Node or Supabase. The token environment is removed after login. Private command
+   output is not published; errors expose only a category/image and exit status.
+   Logout and full config deletion run on success/failure; cleanup cannot mask
+   a primary pull error. Implicit OS credential helpers are rejected before login.
+3. Check the authenticated config no longer exists; create another private config
+   containing exactly `{}`. Reject token variables, auths, helper settings,
+   default OS helpers in PATH and inherited Docker contexts. Only then install/run
+   CLI and execute suites. `packages: read` is used only for authenticated prefetch;
+   `contents: read` remains and no write permission is added.
+4. Run the complete matrix through a local Docker API relay that denies image
+   pulls/loads/pushes, and rejects registry credential variables in container
+   creation. Missing cached images fail before starting, and container creation is limited
+   to manifest refs or their locally inspected image IDs (no unrelated cache). Zero runtime pulls plus
+   the complete successful matrix demonstrate use of the local preloaded images,
+   rather than relying on an anonymous registry fallback. Empty configs are
+   checked by the runner and an actual executable fixture suite. Both phase
+   directories are removed in an `always()` step. No image cache/artifact is saved.
+
+The relay is an observability/availability guard for these trusted local tests,
+not a sandbox against malicious same-UID host code. It requires a Unix Docker
+socket and supports the API/exec streams used by the harness. Local validation
+must also supply a private empty DOCKER_CONFIG and a PATH without Docker's
+implicit credential helpers; an explicit local DOCKER_HOST avoids inheriting a
+Desktop context. User credential stores are never read, modified or deleted.
+
+Startup diagnostics distinguish ports, Docker, missing/denied images and other
+service/logical failures. Permanent/service failures veto retry throughout a log.
+A transient indicator (toomanyrequests or an HTTP/status 429) and explicit image
+pull/download/registry context must occur on the SAME normalized line. Separate
+lines are never combined: ambiguous/wrapped messages fail without retry. Auth or
+Data API 429, denied access, unhealthy services, SQL/migrations, discovery/modules
+and authorization never trigger retries. Pure causal registry errors permit at
+most three starts, with 15/30-second backoff and verified project cleanup between
+attempts. Exhaustion stays exit 20; downstream work is outside this loop.
+
+Deterministic tests exercise the production controller with controlled clocks;
+credential tests use synthetic inputs and a fake Docker executable, never an
+actual GitHub token. The real CI prefetch/empty-runtime/full-matrix run is
+separate evidence. The prior F1 implementation exposed registry credentials to
+CLI/suites (no observed log leak) and overclaimed mixed-log precedence; R1 fixes
+both behaviors. Registry availability, trusted suites, same-UID TOCTOU, fixed
+ports, and SIGKILL/host-failure cleanup limits remain; no remote Supabase operation
+or domain RLS acceptance is implied.

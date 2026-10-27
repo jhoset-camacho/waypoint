@@ -4,15 +4,19 @@ import {spawnSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 import {ownedSandbox,inside} from './paths.mjs';
 import {sanitize} from './diagnostics.mjs';
+import {excluded} from './images.mjs';
+import {assertCredentialFree} from './credentials.mjs';
 export function classifyStartup(text) {
-  const s=String(text);
-  // A concrete permanent/logical failure takes precedence over a rate-limit line.
+  const s=String(text).replace(/\x1b\[[0-9;]*m/g,'');
+  // Permanent/service failures anywhere veto retry, including mixed logs.
   if (/address already in use|port .*already.*(?:use|allocated)|ports? .*not available|bind:.*in use/i.test(s)) return 'ports-occupied';
   if (/cannot connect to the docker daemon|docker.*(?:unavailable|not running)|permission denied.*docker|error during connect/i.test(s)) return 'docker-unavailable';
-  if (/manifest unknown|manifest.*not found|no such image|name unknown|manifest for .*not found|no matching manifest|pull access denied|unauthorized|authentication required/i.test(s)) return 'image-unavailable';
-  if (/\[database:(?:migration|sql|auth|authorization|discovery|verify)\].*FAIL|(?:migration|SQL|Auth|authorization|discovery|test).*failed|syntax error|assertion/i.test(s)) return 'other-startup';
-  const pull=/pull(?:ing)?(?: docker)? image|image configuration|registry|ghcr\.io|public\.ecr\.aws/i.test(s);
-  if ((pull || /toomanyrequests/i.test(s)) && /toomanyrequests|too many requests|\b429\b|rate[ -]?limit(?:ed| exceeded)?/i.test(s)) return 'registry-rate-limit';
+  if (/\bdenied\b|unauthorized|authentication required|manifest unknown|(?:manifest|image|tag|reference).*not found|no such image|name unknown|no matching manifest/i.test(s)) return 'image-unavailable';
+  if (/unhealthy|(?:^|\s)(?:auth|gotrue|postgrest|data[ -]?api|authorization|migration|sql|discovery|module|test|assertion)\b.*(?:429|fail|error|unavailable)|syntax error|assertion|\[database:(?:migration|sql|auth|authorization|discovery|verify|module(?:\/auth\/api)?)\].*FAIL/i.test(s)) return 'other-startup';
+  // A normalized line is one causal event. Never join unrelated log lines.
+  const registryEvent=line=>/pull(?:ing)?(?: docker)? image|download.*image|image.*download|image configuration|registry|(?:ghcr\.io|public\.ecr\.aws)\/[^\s]+/i.test(line);
+  const rateEvent=line=>/toomanyrequests|\bHTTP(?:\/\d(?:\.\d)?)?[\s:=]+429\b|\b(?:status|response)(?: code| status)?[^\r\n]{0,120}\b429\b|\b429\s+too many requests/i.test(line);
+  if(s.split(/\r?\n|\r/).some(line=>registryEvent(line)&&rateEvent(line))) return 'registry-rate-limit';
   return 'other-startup';
 }
 export async function startWithRetry({start,clean,wait,report}) {
@@ -31,6 +35,7 @@ export async function startWithRetry({start,clean,wait,report}) {
   return false;
 }
 if(process.argv[1] && import.meta.url===pathToFileURL(realpathSync(process.argv[1])).href) {
+  try {assertCredentialFree();} catch {console.error('[database:registry-isolation] FAIL: residual runtime credential input (private details suppressed)');process.exit(20);}
   const work=ownedSandbox(process.argv[2]), project=process.argv[3];
   const safe=()=> {
     ownedSandbox(work);
@@ -43,7 +48,7 @@ if(process.argv[1] && import.meta.url===pathToFileURL(realpathSync(process.argv[
     finally {closeSync(fd);}
   };
   const ok=await startWithRetry({
-    start:()=>safe()?commandLog('supabase',['start','--workdir',work,'--exclude','edge-runtime,imgproxy,logflare,mailpit,postgres-meta,realtime,storage-api,studio,supavisor,vector'],'start.log'):{status:20,log:'Unowned startup target'},
+    start:()=>safe()?commandLog('supabase',['start','--workdir',work,'--exclude',excluded],'start.log'):{status:20,log:'Unowned startup target'},
     clean:()=> {
       if(!safe()) return false;
       if(commandLog('supabase',['stop','--workdir',work,'--project-id',project,'--no-backup'],'stop.log').status!==0) return false;

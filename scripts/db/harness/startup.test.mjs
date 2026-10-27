@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {classifyStartup,startWithRetry} from './startup.mjs';
-const transient=['toomanyrequests: allowed: 44000/minute','failed to pull docker image: unexpected status from HEAD request: 429','failed to display json stream: toomanyrequests: allowed: 44000/minute\nfailed to pull docker image','error pulling image configuration: HTTP 429 Too Many Requests','registry ghcr.io response status: 429','failed to pull docker image: rate limit exceeded'];
+const transient=['failed to pull docker image: unexpected status from HEAD request: 429','failed to pull docker image: toomanyrequests: allowed: 44000/minute','error pulling image configuration: HTTP 429 Too Many Requests','registry ghcr.io response status: 429'];
 for(const text of transient) assert.equal(classifyStartup(text),'registry-rate-limit');
 for(const [text,category] of [
   ['bind: address already in use','ports-occupied'],['port 56322 already in use','ports-occupied'],
@@ -28,3 +28,31 @@ r=await simulate([{status:1,log:transient[0]+'\nAuthorization: Bearer '+jwt+'\np
 for(const value of [jwt,'ghp_abcdefghijklmnopqrstuvwxyz0123456789','password=private']) assert(!r.logs.includes(value));
 assert.match(r.logs,/registry-rate-limit/);assert.match(r.logs,/suppressed/);
 console.log('[harness:startup-test] PASS: classification, bounded retry/backoff, no logical retry, cleanup order/failure, exhaustion and sanitized diagnostics');
+
+// Exact independent-review regressions: unrelated lines cannot become one cause.
+for(const log of [
+ 'Pulling image ghcr.io/supabase/gotrue:v2.189.0\nAuth HTTP 429 Too Many Requests\ncontainer auth is unhealthy',
+ 'failed to pull docker image: toomanyrequests\ndenied: requested access to the resource is denied',
+ 'failed to pull docker image: toomanyrequests\ncontainer Auth unhealthy',
+ 'Pulling image ghcr.io/supabase/postgres:17.6.1.134\nHTTP 429 Too Many Requests',
+ 'manifest unknown',
+ 'bind: address already in use',
+ 'toomanyrequests: allowed: 44000/minute',
+ 'failed to pull image ghcr.io/supabase/test:429: unrelated timeout',
+ 'Pulling image ghcr.io/supabase/gotrue:v2.189.0\nData API HTTP 429 Too Many Requests',
+]) {
+ const r=await simulate([{status:1,log}]);assert(!r.ok);assert.deepEqual(r.events,['start1']);
+ assert.notEqual(classifyStartup(log),'registry-rate-limit');
+}
+for(const log of ['failed to download image: toomanyrequests','pulling image ghcr.io/supabase/postgres:17.6.1.134: HTTP 429 Too Many Requests','failed to pull image ghcr.io/supabase/gotrue:v2.189.0: HTTP 429 Too Many Requests']) {
+ const r=await simulate([{status:1,log}]);assert(!r.ok);assert.deepEqual(r.events,['start1','clean1','wait15000','start2','clean2','wait30000','start3']);
+ assert.match(r.logs,/exhausted 3\/3/);
+}
+// The runner maps false to exit 20, never executes downstream work after it.
+const downstream=[];
+await assert.rejects(async()=>{
+ const ok=await startWithRetry({start:()=>{downstream.push('start');return success;},clean:()=>{downstream.push('clean');return true;},wait:()=>downstream.push('wait'),report:()=>{}});
+ assert(ok);downstream.push('sql');throw Error('downstream SQL failure');
+},/downstream SQL failure/);
+assert.deepEqual(downstream,['start','sql']);
+console.log('[harness:startup-test] PASS: causal pure/mixed review cases, permanent precedence, one start for services, bounded pure registry retries and exhausted failure mapped to 20');

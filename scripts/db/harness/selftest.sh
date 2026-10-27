@@ -2,12 +2,19 @@
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../../.." && pwd)
+for key in GITHUB_TOKEN GHCR_TOKEN GH_TOKEN DOCKER_AUTH_CONFIG REGISTRY_AUTH_FILE; do
+  [[ -z ${!key+x} ]] || { echo '[database:registry-isolation] FAIL: credential environment input' >&2; exit 20; }
+done
+node "$here/credentials.mjs" --check
+node "$here/credentials.test.mjs"
+node "$here/offline-docker.test.mjs"
 # Compare the entire tracked diff, including staged changes; works before commit too.
 before=$(git -C "$root" diff HEAD --binary | shasum -a 256)
 node "$here/plan.test.mjs"
 node "$here/discovery.test.mjs"
 node "$here/diagnostics.test.mjs"
 node "$here/startup.test.mjs"
+node "$here/startup-entry.test.mjs"
 node "$here/snapshot.test.mjs"
 node "$here/adversarial-integration.mjs"
 node "$here/ports.test.mjs"
