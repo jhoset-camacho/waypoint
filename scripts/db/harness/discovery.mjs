@@ -20,7 +20,7 @@ export function discoverSuites(checkoutInput,workInput) {
       if(names.has(name)) throw Error('duplicate module');
       names.add(name);
       const spec=JSON.parse(readFileSync(inside(root,'db-suite.json'),'utf8'));
-      if(!spec || Array.isArray(spec) || spec.version!==1 || !Array.isArray(spec.tests) || !spec.tests.length || Object.keys(spec).some(k=>!['version','setup','tests'].includes(k))) throw Error('invalid suite manifest');
+      if(!spec || Array.isArray(spec) || (Object.hasOwn(spec,'setup') && !Array.isArray(spec.setup)) || spec.version!==1 || !Array.isArray(spec.tests) || !spec.tests.length || Object.keys(spec).some(k=>!['version','setup','tests'].includes(k))) throw Error('invalid suite manifest');
       const seen=new Set();
       const files=(list,setup)=>{
         if(!Array.isArray(list)) throw Error('suite list required');
