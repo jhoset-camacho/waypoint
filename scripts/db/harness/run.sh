@@ -49,13 +49,11 @@ safe_target || fail safety 'Temporary project identity mismatch' 20
 node "$root/scripts/db/harness/prepare-modules.mjs" "$root" "$work" || exit 30
 for tool in docker supabase; do command -v "$tool" >/dev/null || fail preflight "$tool unavailable" 20; done
 [[ $(supabase --version) == 2.106.0 ]] || fail preflight 'Requires CLI exactly 2.106.0' 20
-docker info >/dev/null 2>&1 || fail preflight 'Docker unavailable' 20
+docker info >/dev/null 2>&1 || fail preflight 'Docker unavailable (docker-unavailable)' 20
 cd "$work"
 attempted=1
 echo '[database:startup] Starting disposable PostgreSQL, Auth and Data API'
-if ! supabase start --workdir "$work" --exclude edge-runtime,imgproxy,logflare,mailpit,postgres-meta,realtime,storage-api,studio,supavisor,vector >"$work/start.log" 2>&1; then
-  fail startup 'Local startup failed; ports 56320–56322 must be free' 20
-fi
+node "$root/scripts/db/harness/startup.mjs" "$work" "$project" || exit 20
 sed -e "s/replaced-by-runner/$project/" -e '/\[db.migrations\]/{n;s/false/true/;}' "$root/scripts/db/harness/config.toml" > "$work/supabase/config.toml"
 reset_local() {
   echo '[database:migration] Rebuilding disposable local database'

@@ -7,6 +7,7 @@ before=$(git -C "$root" diff HEAD --binary | shasum -a 256)
 node "$here/plan.test.mjs"
 node "$here/discovery.test.mjs"
 node "$here/diagnostics.test.mjs"
+node "$here/startup.test.mjs"
 node "$here/snapshot.test.mjs"
 node "$here/adversarial-integration.mjs"
 node "$here/ports.test.mjs"

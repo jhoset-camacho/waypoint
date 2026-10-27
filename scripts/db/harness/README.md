@@ -234,3 +234,34 @@ for valid input and discovery **30** for linked input. Snapshot execution after
 removing the checkout module and rejection of a late snapshot symlink are tested.
 A simulated mismatch prints sanitized diagnostic evidence. The nine original
 scenarios, Auth/JWT/HTTP checks and path/alias regressions remain mandatory.
+
+
+### Registry availability (F1)
+
+CLI stays at 2.106.0. Its pinned setup action exports the internal
+`SUPABASE_INTERNAL_IMAGE_REGISTRY=ghcr.io` mirror override for this version;
+without it CLI defaults to public ECR. CI retains that upstream selection and
+uses the built-in ephemeral `GITHUB_TOKEN`, `contents: read` and `packages: read`
+to log into GHCR through stdin (no tracing). Docker config lives in a private
+runner-temporary directory and is logged out/deleted in an `always()` step.
+The token is scoped to the login step, never passed to suites or Supabase.
+No manual secret, hosted Supabase credential, image artifact or image cache is added.
+
+Startup diagnostics distinguish `ports-occupied`, `registry-rate-limit`,
+`image-unavailable` (including missing tags/platforms and denied access),
+`docker-unavailable` and `other-startup`. Only recognized registry pull rate
+limits (`toomanyrequests`, 429 or explicit rate-limit response) retry: at most
+three starts, with 15/30 second backoff. A permanent/logical error takes precedence
+in mixed output. Before each retry the owned project is stopped without backup
+and its containers, volumes and network must be absent. Cleanup failure stops
+retrying. Final failure stays 20, with a sanitized exhaustion diagnostic and the
+normal final cleanup. Migration/reset, SQL, Auth, authorization, discovery and
+tests remain outside the retry loop. No whole matrix or CI job is retried by code.
+
+The CLI uses `PullPolicyMissing` and image inspection; exact images already
+present can be reused. Prefetch/cache is therefore unnecessary for this fix.
+Authentication and bounded retries mitigate availability; they do not guarantee
+that GHCR will always serve pulls or that quotas are isolated by runner/account.
+Focused tests invoke the production retry controller with deterministic local
+callbacks, without contacting a registry or sleeping; full selftest then exercises
+the actual startup and cleanup commands.
