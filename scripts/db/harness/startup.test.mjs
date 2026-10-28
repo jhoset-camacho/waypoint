@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {classifyStartup,startWithRetry} from './startup.mjs';
-const transient=['failed to pull docker image: unexpected status from HEAD request: 429','failed to pull docker image: toomanyrequests: allowed: 44000/minute','error pulling image configuration: HTTP 429 Too Many Requests','registry ghcr.io response status: 429'];
+const transient=['failed to pull docker image: rate limit exceeded','failed to pull docker image: too many requests','failed to pull docker image: unexpected status from HEAD request: 429','failed to pull docker image: toomanyrequests: allowed: 44000/minute','error pulling image configuration: HTTP 429 Too Many Requests','registry ghcr.io response status: 429'];
 for(const text of transient) assert.equal(classifyStartup(text),'registry-rate-limit');
 for(const [text,category] of [
   ['bind: address already in use','ports-occupied'],['port 56322 already in use','ports-occupied'],
@@ -18,7 +18,7 @@ const rate={status:1,log:transient[0]},success={status:0,log:''};
 let r=await simulate([rate,rate,success]);assert(r.ok);assert.deepEqual(r.events,['start1','clean1','wait15000','start2','clean2','wait30000','start3']);
 r=await simulate([rate]);assert(!r.ok);assert.equal(r.events.filter(e=>e.startsWith('start')).length,3);assert.match(r.logs,/exhausted 3\/3/);
 r=await simulate([rate],false);assert(!r.ok);assert.deepEqual(r.events,['start1','clean1']);assert.match(r.logs,/cleanup between attempts failed/);
-for(const text of ['migration failed','SQL failed','Auth failed','authorization failed','discovery failed','test failed','syntax error','AssertionError','bind: address already in use','manifest unknown','Cannot connect to the Docker daemon','unknown startup failure']) {
+for(const text of ['invalid reference format','manifest invalid','Storage initialization failed','failed to start container: exec format error','unauthorized','authentication required','module invalid','migration failed','SQL failed','Auth failed','authorization failed','discovery failed','test failed','syntax error','AssertionError','bind: address already in use','manifest unknown','Cannot connect to the Docker daemon','unknown startup failure']) {
   // Even mixed logs cannot make a logical/permanent error transient.
   const log=['unknown startup failure'].includes(text)?text:transient[0]+'\n'+text;
   r=await simulate([{status:30,log}]);assert(!r.ok);assert.deepEqual(r.events,['start1'],text);
@@ -56,3 +56,10 @@ await assert.rejects(async()=>{
 },/downstream SQL failure/);
 assert.deepEqual(downstream,['start','sql']);
 console.log('[harness:startup-test] PASS: causal pure/mixed review cases, permanent precedence, one start for services, bounded pure registry retries and exhausted failure mapped to 20');
+
+for(const log of transient) {
+ const r=await simulate([{status:1,log}]);
+ assert(!r.ok);assert.deepEqual(r.events,['start1','clean1','wait15000','start2','clean2','wait30000','start3']);
+ assert.match(r.logs,/exhausted 3\/3/);
+}
+console.log('[harness:startup-test] PASS: R2 four pure throttles, explicit permanent/service vetoes and exact bounded controller traces');

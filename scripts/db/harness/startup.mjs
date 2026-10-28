@@ -8,15 +8,22 @@ import {excluded} from './images.mjs';
 import {assertCredentialFree} from './credentials.mjs';
 export function classifyStartup(text) {
   const s=String(text).replace(/\x1b\[[0-9;]*m/g,'');
-  // Permanent/service failures anywhere veto retry, including mixed logs.
-  if (/address already in use|port .*already.*(?:use|allocated)|ports? .*not available|bind:.*in use/i.test(s)) return 'ports-occupied';
-  if (/cannot connect to the docker daemon|docker.*(?:unavailable|not running)|permission denied.*docker|error during connect/i.test(s)) return 'docker-unavailable';
-  if (/\bdenied\b|unauthorized|authentication required|manifest unknown|(?:manifest|image|tag|reference).*not found|no such image|name unknown|no matching manifest/i.test(s)) return 'image-unavailable';
-  if (/unhealthy|(?:^|\s)(?:auth|gotrue|postgrest|data[ -]?api|authorization|migration|sql|discovery|module|test|assertion)\b.*(?:429|fail|error|unavailable)|syntax error|assertion|\[database:(?:migration|sql|auth|authorization|discovery|verify|module(?:\/auth\/api)?)\].*FAIL/i.test(s)) return 'other-startup';
-  // A normalized line is one causal event. Never join unrelated log lines.
+  const lines=s.split(/\r?\n|\r/);
+  // First inspect every event for recognized non-retryable causes. A throttle
+  // elsewhere in the block must never override a permanent or service failure.
+  const vetoes=[
+    ['ports-occupied', /address already in use|port .*already.*(?:use|allocated)|ports? .*not available|bind:.*in use/i],
+    ['docker-unavailable', /cannot connect to the docker daemon|docker.*(?:unavailable|not running)|permission denied.*docker|error during connect/i],
+    ['image-unavailable', /\bdenied\b|unauthorized|authentication required|manifest (?:unknown|invalid)|(?:manifest|image|tag|reference).*not found|no such image|name unknown|no matching manifest|invalid reference format/i],
+    ['other-startup', /exec format error|unhealthy|(?:^|\s)(?:auth|gotrue|postgrest|data[ -]?api|storage|authorization|migration|sql|discovery|module|test|assertion)\b.*(?:429|fail|error|unavailable|invalid)|syntax error|assertion|\[database:(?:migration|sql|auth|authorization|discovery|verify|module(?:\/auth\/api)?)\].*FAIL/i],
+  ];
+  for(const [category,pattern] of vetoes) {
+    if(lines.some(line=>pattern.test(line))) return category;
+  }
+  // One normalized line is one causal event. Never join independent events.
   const registryEvent=line=>/pull(?:ing)?(?: docker)? image|download.*image|image.*download|image configuration|registry|(?:ghcr\.io|public\.ecr\.aws)\/[^\s]+/i.test(line);
-  const rateEvent=line=>/toomanyrequests|\bHTTP(?:\/\d(?:\.\d)?)?[\s:=]+429\b|\b(?:status|response)(?: code| status)?[^\r\n]{0,120}\b429\b|\b429\s+too many requests/i.test(line);
-  if(s.split(/\r?\n|\r/).some(line=>registryEvent(line)&&rateEvent(line))) return 'registry-rate-limit';
+  const rateEvent=line=>/\btoomanyrequests\b|\btoo many requests\b|\brate limit exceeded\b|\bHTTP(?:\/\d(?:\.\d)?)?[\s:=]+429\b|\b(?:status|response)(?: code| status)?[^\r\n]{0,120}\b429\b/i.test(line);
+  if(lines.some(line=>registryEvent(line)&&rateEvent(line))) return 'registry-rate-limit';
   return 'other-startup';
 }
 export async function startWithRetry({start,clean,wait,report}) {

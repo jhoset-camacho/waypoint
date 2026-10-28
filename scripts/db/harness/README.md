@@ -276,21 +276,33 @@ must also supply a private empty DOCKER_CONFIG and a PATH without Docker's
 implicit credential helpers; an explicit local DOCKER_HOST avoids inheriting a
 Desktop context. User credential stores are never read, modified or deleted.
 
-Startup diagnostics distinguish ports, Docker, missing/denied images and other
-service/logical failures. Permanent/service failures veto retry throughout a log.
-A transient indicator (toomanyrequests or an HTTP/status 429) and explicit image
-pull/download/registry context must occur on the SAME normalized line. Separate
-lines are never combined: ambiguous/wrapped messages fail without retry. Auth or
-Data API 429, denied access, unhealthy services, SQL/migrations, discovery/modules
-and authorization never trigger retries. Pure causal registry errors permit at
-most three starts, with 15/30-second backoff and verified project cleanup between
-attempts. Exhaustion stays exit 20; downstream work is outside this loop.
+Startup diagnostics first check every normalized line for recognized non-retryable
+causes across the entire diagnostic block: occupied ports, unavailable Docker,
+denied/unauthorized/authentication-required, missing image/tag/manifest, invalid
+manifest/reference, exec format errors, unhealthy containers and recognized
+Auth/Data API/Storage, SQL/migration, discovery/module/test/authorization failures.
+Any such veto wins even when another event reports a registry throttle. This is
+an explicit list of recognized failures, not a promise to recognize all possible
+upstream messages. Authentication-required is conservatively non-retryable.
 
-Deterministic tests exercise the production controller with controlled clocks;
-credential tests use synthetic inputs and a fake Docker executable, never an
-actual GitHub token. The real CI prefetch/empty-runtime/full-matrix run is
-separate evidence. The prior F1 implementation exposed registry credentials to
-CLI/suites (no observed log leak) and overclaimed mixed-log precedence; R1 fixes
-both behaviors. Registry availability, trusted suites, same-UID TOCTOU, fixed
-ports, and SIGKILL/host-failure cleanup limits remain; no remote Supabase operation
-or domain RLS acceptance is implied.
+Only after those vetoes pass can toomanyrequests, too many requests, rate limit
+exceeded or HTTP/status 429 classify as registry-rate-limit. The throttle and an
+explicit image pull/download/registry context must share one normalized line.
+Separate lines are never combined; ambiguous wrapped messages fail without retry.
+Pure causal registry errors permit at most three starts, with 15/30-second backoff
+and verified project cleanup between attempts. Exhaustion stays exit 20;
+downstream SQL/Auth/test work remains outside this loop.
+
+R2 deterministic tests invoke both the production controller and its actual CLI
+entrypoint using fake CLI/Docker and an immediate clock. Every required mixed
+case has one start, zero retry cleanups/backoffs and exit 20; all four pure
+throttles have three starts, two cleanups/backoffs and exit 20 on exhaustion.
+These are controlled regressions, not real registry outages. Credential tests
+use synthetic inputs, never an actual GitHub token. The real CI prefetch,
+empty-runtime/full-matrix execution is separate evidence. R1 credential isolation
+and the five-image manifest are retained; R2 completes the missing recognized
+vetoes and restores the two text throttle signals. Earlier R1 green runs do not
+validate R2. Registry availability, trusted suites, same-UID TOCTOU, fixed ports,
+and SIGKILL/host-failure cleanup limits remain; no remote Supabase operation or
+domain RLS acceptance is implied. P03 remains blocked until integration and its
+independent documentary closure.
