@@ -1,14 +1,14 @@
-import {readdirSync, lstatSync, readFileSync} from 'node:fs';
-import {join} from 'node:path';
+import {readdirSync, lstatSync, readFileSync, writeFileSync} from 'node:fs';
+import {join, dirname} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {canonicalRoot, ownedSandbox, inside, optionalDirectory, components} from './paths.mjs';
+import {canonicalRoot, ownedSandbox, inside, optionalDirectory, components, makeDirectory, copyInside} from './paths.mjs';
 export const RESERVED_MODULES=Object.freeze(['harness','migration-parity']);
 export const MODULE_NAME=/^[a-z][a-z0-9-]*$/;
 // Every nonreserved entry declares a module. Nothing malformed disappears as NONE.
-export function discoverSuites(checkoutInput,workInput) {
+export function discoverSuites(checkoutInput,workInput,includeTemporary=true) {
   const checkout=canonicalRoot(checkoutInput), work=ownedSandbox(workInput);
   const roots=[inside(checkout,'scripts/db','directory')];
-  const temporary=optionalDirectory(work,'modules');
+  const temporary=includeTemporary ? optionalDirectory(work,'modules') : null;
   if(temporary) roots.push(temporary);
   const suites=[], names=new Set();
   for(const db of roots) {
@@ -51,4 +51,25 @@ export async function executeSuites(suites,context,sql,report=console.log) {
     }
     report(`[database:module] PASS: ${suite.name}`);
   }
+}
+
+// Validate before infrastructure, then execute only the private declared snapshot.
+export function snapshotSuites(checkout,workInput) {
+  const work=ownedSandbox(workInput), suites=discoverSuites(checkout,work);
+  makeDirectory(work,'suite-snapshot/scripts/db');
+  for(const suite of suites) {
+    const target='suite-snapshot/scripts/db/'+suite.name;
+    makeDirectory(work,target);
+    for(const file of [...suite.setup,...suite.tests]) {
+      if(dirname(file)!=='.') makeDirectory(work,target+'/'+dirname(file));
+      copyInside(suite.root,file,work,target+'/'+file);
+    }
+    writeFileSync(join(work,target,'db-suite.json'),JSON.stringify({version:1,setup:suite.setup,tests:suite.tests}),{flag:'wx'});
+  }
+  const snapshot=inside(work,'suite-snapshot','directory');
+  return discoverSuites(snapshot,work,false);
+}
+export function stagedSuites(workInput) {
+  const work=ownedSandbox(workInput);
+  return discoverSuites(inside(work,'suite-snapshot','directory'),work,false);
 }

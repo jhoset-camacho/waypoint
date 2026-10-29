@@ -198,3 +198,111 @@ Official sources consulted:
 
 Rollback: revert this harness PR, keep P03 blocked. No remote state changes.
 Governance: G1 plan, ADR-WP-0001/0002/0004, persistence/RLS contract 1.0.0.
+
+## F1: structural classification before infrastructure
+
+After migration planning, the runner calls `prepare-modules.mjs`, using the same
+`discoverSuites` implementation as execution tests. It validates all declared
+module paths/manifests and copies only declared setup/test files into a private
+`suite-snapshot`. Nested declared paths are preserved. Execution rediscovers that
+snapshot, rechecking containment, after both database rebuilds. Relative imports
+must refer to declared files in that snapshot; undeclared checkout files are not
+copied. Repository suites remain trusted code.
+
+Invalid/linked modules now return **30 before Docker/CLI preflight and startup**.
+External migration SQL still returns **20** from planning first. A valid module
+still requires the real infrastructure and retains startup/rebuild **20**, suite
+assertion **30**, and cleanup precedence. No-module snapshots remain valid/NONE.
+
+The original post-merge log suppressed the child output, so its specific early
+20 cannot be attributed retrospectively to a port, startup or reset failure.
+The ordering defect is independently reproducible: an occupied database port
+makes the original linked-module runner return startup **20**, masking discovery.
+Free-port local reproduction can return the intended **30** on the original code.
+F1 removes that infrastructure dependency, rather than changing the expectation.
+
+Mismatch diagnostics include scenario, received/expected exit, last reported
+stage, child stdout/stderr and cleanup status. Private CLI logs survive through
+cleanup and emit only bounded infrastructure error lines after filtering sensitive
+lines and opaque values; status JSON, HTTP bodies and credential files are never
+printed or uploaded. All private logs are removed on exit. Sanitization is also
+applied to self-test output; modules must still honor the no-secret logging rule.
+
+F1 regressions run a linked-module attack in isolation, after external SQL and
+repeatedly, from copies with spaces. A real occupied socket proves startup **20**
+for valid input and discovery **30** for linked input. Snapshot execution after
+removing the checkout module and rejection of a late snapshot symlink are tested.
+A simulated mismatch prints sanitized diagnostic evidence. The nine original
+scenarios, Auth/JWT/HTTP checks and path/alias regressions remain mandatory.
+
+
+### Registry availability and credential separation (F1 R1)
+
+CLI remains 2.106.0. `images.txt` contains the five explicit GHCR image tags
+resolved from immutable CLI commit `bd39bcf5e613be87943f8bb8fe4ce75c8dfd84de`.
+`images.mjs --upstream` verifies SHA-256 of its Dockerfile, service configuration, bootstrap jobs
+and registry resolver, resolves pg/kong/postgrest/gotrue/storage, compares the full
+manifest and pins this harness config. Storage is excluded as a permanent
+service, but CLI initSchema15 still needs its image for schema initialization. Startup exclusions are shared with that
+module. A changed config/source/manifest requires review instead of guessing tags.
+
+CI phases are strictly ordered:
+
+1. Check pinned manifest provenance without a token or Supabase execution.
+2. `prefetch.sh` uses a fresh private Docker config, built-in GITHUB_TOKEN via
+   stdin, and explicit pulls/inspection of every manifest image. It never runs
+   Node or Supabase. The token environment is removed after login. Private command
+   output is not published; errors expose only a category/image and exit status.
+   Logout and full config deletion run on success/failure; cleanup cannot mask
+   a primary pull error. Implicit OS credential helpers are rejected before login.
+3. Check the authenticated config no longer exists; create another private config
+   containing exactly `{}`. Reject token variables, auths, helper settings,
+   default OS helpers in PATH and inherited Docker contexts. Only then install/run
+   CLI and execute suites. `packages: read` is used only for authenticated prefetch;
+   `contents: read` remains and no write permission is added.
+4. Run the complete matrix through a local Docker API relay that denies image
+   pulls/loads/pushes, and rejects registry credential variables in container
+   creation. Missing cached images fail before starting, and container creation is limited
+   to manifest refs or their locally inspected image IDs (no unrelated cache). Zero runtime pulls plus
+   the complete successful matrix demonstrate use of the local preloaded images,
+   rather than relying on an anonymous registry fallback. Empty configs are
+   checked by the runner and an actual executable fixture suite. Both phase
+   directories are removed in an `always()` step. No image cache/artifact is saved.
+
+The relay is an observability/availability guard for these trusted local tests,
+not a sandbox against malicious same-UID host code. It requires a Unix Docker
+socket and supports the API/exec streams used by the harness. Local validation
+must also supply a private empty DOCKER_CONFIG and a PATH without Docker's
+implicit credential helpers; an explicit local DOCKER_HOST avoids inheriting a
+Desktop context. User credential stores are never read, modified or deleted.
+
+Startup diagnostics first check every normalized line for recognized non-retryable
+causes across the entire diagnostic block: occupied ports, unavailable Docker,
+denied/unauthorized/authentication-required, missing image/tag/manifest, invalid
+manifest/reference, exec format errors, unhealthy containers and recognized
+Auth/Data API/Storage, SQL/migration, discovery/module/test/authorization failures.
+Any such veto wins even when another event reports a registry throttle. This is
+an explicit list of recognized failures, not a promise to recognize all possible
+upstream messages. Authentication-required is conservatively non-retryable.
+
+Only after those vetoes pass can toomanyrequests, too many requests, rate limit
+exceeded or HTTP/status 429 classify as registry-rate-limit. The throttle and an
+explicit image pull/download/registry context must share one normalized line.
+Separate lines are never combined; ambiguous wrapped messages fail without retry.
+Pure causal registry errors permit at most three starts, with 15/30-second backoff
+and verified project cleanup between attempts. Exhaustion stays exit 20;
+downstream SQL/Auth/test work remains outside this loop.
+
+R2 deterministic tests invoke both the production controller and its actual CLI
+entrypoint using fake CLI/Docker and an immediate clock. Every required mixed
+case has one start, zero retry cleanups/backoffs and exit 20; all four pure
+throttles have three starts, two cleanups/backoffs and exit 20 on exhaustion.
+These are controlled regressions, not real registry outages. Credential tests
+use synthetic inputs, never an actual GitHub token. The real CI prefetch,
+empty-runtime/full-matrix execution is separate evidence. R1 credential isolation
+and the five-image manifest are retained; R2 completes the missing recognized
+vetoes and restores the two text throttle signals. Earlier R1 green runs do not
+validate R2. Registry availability, trusted suites, same-UID TOCTOU, fixed ports,
+and SIGKILL/host-failure cleanup limits remain; no remote Supabase operation or
+domain RLS acceptance is implied. P03 remains blocked until integration and its
+independent documentary closure.

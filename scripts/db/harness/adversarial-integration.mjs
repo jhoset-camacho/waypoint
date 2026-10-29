@@ -5,8 +5,9 @@ import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {spawnSync} from 'node:child_process';
 import assert from 'node:assert/strict';
+import {verifyRun} from './diagnostics.mjs';
 import {sourceCopy} from './test-support.mjs';
-for(const attack of ['externalSQL','linkedModule']) {
+for(const attack of ['linkedModule','externalSQL','linkedModule','linkedModule','linkedModule']) {
   const temp=mkdtempSync(join(tmpdir(),'wp-r1-real-'));
   try {
     const root=sourceCopy(temp), marker=join(temp,'external-module-executed');
@@ -22,6 +23,7 @@ for(const attack of ['externalSQL','linkedModule']) {
     }
     const result=spawnSync('bash',[join(root,'scripts/db/harness/run.sh')],{encoding:'utf8',timeout:240000});
     const wanted=attack==='externalSQL'?20:30;
+    verifyRun(attack,result,wanted,()=>{
     assert.equal(result.status,wanted,attack+': unexpected stage/exit');
     assert.match(result.stdout,/\[database:cleanup\] PASS/);
     assert(!result.stderr.includes('[database:cleanup] FAIL'));
@@ -29,11 +31,12 @@ for(const attack of ['externalSQL','linkedModule']) {
       assert(!result.stdout.includes('[database:startup]'),'external SQL reached database startup');
       assert.match(result.stderr,/\[database:plan\] FAIL/);
     } else {
-      assert.match(result.stdout,/complete rebuild and exact ordered history/);
+      assert(!result.stdout.includes('[database:startup]'),'invalid module reached startup');
       assert.match(result.stderr,/FAIL: discovery assertion/);
       assert(!result.stdout.includes('[database:modules] NONE'),'declared linked suite disappeared');
     }
     assert(!existsSync(marker),'external module executed');
+    });
     console.log(`[harness:adversarial-integration] PASS: ${attack} -> ${wanted}; blocked, cleanup confirmed`);
   } finally {rmSync(temp,{recursive:true,force:true});}
 }

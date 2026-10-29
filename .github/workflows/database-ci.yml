@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  packages: read # Read-only GHCR authentication; no package writes.
 
 concurrency:
   group: database-ci-${{ github.event.pull_request.number || github.ref }}
@@ -28,9 +29,41 @@ jobs:
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5 (Node 24)
         with:
           node-version: 22
-      - name: Install pinned Supabase CLI
+      - name: Verify pinned image manifest provenance
+        run: node scripts/db/harness/images.mjs --upstream
+      - name: Prefetch exact images with ephemeral authentication
+        shell: bash
+        env:
+          WP_PREFETCH_CONFIG: ${{ runner.temp }}/wp-ghcr-prefetch-${{ github.run_id }}-${{ github.run_attempt }}
+          GHCR_TOKEN: ${{ github.token }}
+          GHCR_USER: ${{ github.actor }}
+        run: bash scripts/db/harness/prefetch.sh
+      - name: Verify credential removal and prepare empty runtime config
+        env:
+          WP_PREFETCH_CONFIG: ${{ runner.temp }}/wp-ghcr-prefetch-${{ github.run_id }}-${{ github.run_attempt }}
+          DOCKER_CONFIG: ${{ runner.temp }}/wp-docker-runtime-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          node scripts/db/harness/credentials.mjs --prepare
+          node scripts/db/harness/images.mjs --local
+      - name: Install pinned Supabase CLI without registry credentials
         uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1.7.3; Node 20 warning remains upstream
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/wp-docker-runtime-${{ github.run_id }}-${{ github.run_attempt }}
         with:
           version: 2.106.0
-      - name: Verify local database, negative gates and cleanup
-        run: npm run test:db:harness
+      - name: Verify local database without tokens, auth or runtime image pulls
+        env:
+          WP_PREFETCH_CONFIG: ${{ runner.temp }}/wp-ghcr-prefetch-${{ github.run_id }}-${{ github.run_attempt }}
+          DOCKER_CONFIG: ${{ runner.temp }}/wp-docker-runtime-${{ github.run_id }}-${{ github.run_attempt }}
+        run: node scripts/db/harness/offline-docker.mjs
+      - name: Remove all temporary Docker configs
+        if: always()
+        shell: bash
+        env:
+          WP_PREFETCH_CONFIG: ${{ runner.temp }}/wp-ghcr-prefetch-${{ github.run_id }}-${{ github.run_attempt }}
+          DOCKER_CONFIG: ${{ runner.temp }}/wp-docker-runtime-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          rm -rf -- "$WP_PREFETCH_CONFIG" "$DOCKER_CONFIG"
+          test ! -e "$WP_PREFETCH_CONFIG"
+          test ! -e "$DOCKER_CONFIG"
+          echo '[database:registry-isolation] PASS: both phase configs absent'

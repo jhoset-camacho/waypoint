@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
+import {readFileSync,existsSync} from 'node:fs';
 export default async ({api, users}) => {
+  for(const name of ['GITHUB_TOKEN','GHCR_TOKEN','GH_TOKEN','DOCKER_AUTH_CONFIG','REGISTRY_AUTH_FILE']) assert.equal(process.env[name],undefined);
+  assert.deepEqual(JSON.parse(readFileSync(process.env.DOCKER_CONFIG+'/config.json','utf8')),{});
+  if(process.env.WP_PREFETCH_CONFIG) assert(!existsSync(process.env.WP_PREFETCH_CONFIG));
+  console.log('[database:registry-isolation] PASS: executable suite sees no registry token/auth/helper');
   const publicRows = await api('anon', 'harness_probe?select=id');
   assert.equal(publicRows.status, 200);
   assert.deepEqual(publicRows.body, [{id:0}]);

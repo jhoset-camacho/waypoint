@@ -2,14 +2,17 @@
 set -euo pipefail
 umask 077
 root=$(cd "$(dirname "$0")/../../.." && pwd)
+# Reject credential-bearing invocations before any child program is executed.
+for key in GITHUB_TOKEN GHCR_TOKEN GH_TOKEN DOCKER_AUTH_CONFIG REGISTRY_AUTH_FILE; do
+  [[ -z ${!key+x} ]] || { echo '[database:registry-isolation] FAIL: credential environment input' >&2; exit 20; }
+done
+node "$root/scripts/db/harness/credentials.mjs" --check || exit 20
 scenario=${1:-verify}
 case "$scenario" in verify|baseline|modified-baseline|missing-baseline|valid-candidate|invalid-migration|invalid-sql|valid-module|invalid-module) ;; *) exit 20 ;; esac
 fail() { echo "[database:$1] FAIL: $2" >&2; exit "$3"; }
-for tool in node docker supabase; do command -v "$tool" >/dev/null || fail preflight "$tool unavailable" 20; done
+for tool in node; do command -v "$tool" >/dev/null || fail preflight "$tool unavailable" 20; done
 # Remove remote connection inputs; no linked config is copied or consulted.
 unset SUPABASE_ACCESS_TOKEN SUPABASE_DB_PASSWORD SUPABASE_PROJECT_ID DATABASE_URL PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE
-[[ $(supabase --version) == 2.106.0 ]] || fail preflight 'Requires CLI exactly 2.106.0' 20
-docker info >/dev/null 2>&1 || fail preflight 'Docker unavailable' 20
 work=$(mktemp -d "${TMPDIR:-/tmp}/wp-g1-p02a.XXXXXXXX")
 project="wp-g1-p02a-$(basename "$work" | tr '[:upper:].' '[:lower:]-')"
 container="supabase_db_$project"
@@ -31,6 +34,9 @@ cleanup() {
     networks=$(docker network ls -q --filter "name=^supabase_network_${project}$") || cleanup_failed=1
     [[ -z $containers && -z $volumes && -z $networks ]] || cleanup_failed=1
   fi
+  if [[ $result != 0 || $cleanup_failed == 1 ]]; then
+    node "$root/scripts/db/harness/diagnostics.mjs" --logs "$work" || true
+  fi
   rm -rf "$work" || cleanup_failed=1
   if [[ $cleanup_failed == 1 ]]; then
     echo "[database:cleanup] FAIL: primary=$result; cleanup=40" >&2
@@ -45,14 +51,17 @@ printf '%s\n' "$project" > "$work/owner"
 node "$root/scripts/db/harness/plan.mjs" "$root" "$work" "$scenario" || exit 20
 sed "s/replaced-by-runner/$project/" "$root/scripts/db/harness/config.toml" > "$work/supabase/config.toml"
 safe_target || fail safety 'Temporary project identity mismatch' 20
+node "$root/scripts/db/harness/prepare-modules.mjs" "$root" "$work" || exit 30
+for tool in docker supabase; do command -v "$tool" >/dev/null || fail preflight "$tool unavailable" 20; done
+[[ $(supabase --version) == 2.106.0 ]] || fail preflight 'Requires CLI exactly 2.106.0' 20
+docker info >/dev/null 2>&1 || fail preflight 'Docker unavailable (docker-unavailable)' 20
 cd "$work"
 attempted=1
 echo '[database:startup] Starting disposable PostgreSQL, Auth and Data API'
-if ! supabase start --workdir "$work" --exclude edge-runtime,imgproxy,logflare,mailpit,postgres-meta,realtime,storage-api,studio,supavisor,vector >"$work/start.log" 2>&1; then
-  fail startup 'Local startup failed; ports 56320–56322 must be free' 20
-fi
+node "$root/scripts/db/harness/startup.mjs" "$work" "$project" || exit 20
 sed -e "s/replaced-by-runner/$project/" -e '/\[db.migrations\]/{n;s/false/true/;}' "$root/scripts/db/harness/config.toml" > "$work/supabase/config.toml"
 reset_local() {
+  echo '[database:migration] Rebuilding disposable local database'
   safe_target || fail safety 'Refusing reset of unowned project' 20
   if ! supabase db reset --local --no-seed --workdir "$work" >"$work/reset.log" 2>&1; then fail migration 'Local rebuild failed' 20; fi
 }

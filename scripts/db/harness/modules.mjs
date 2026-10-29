@@ -3,13 +3,13 @@ import {execFileSync} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
 import assert from 'node:assert/strict';
 import {ownedSandbox,inside} from './paths.mjs';
-import {discoverSuites,executeSuites} from './discovery.mjs';
+import {stagedSuites,executeSuites} from './discovery.mjs';
 const [root, workInput, container] = process.argv.slice(2);
 const sql = text => execFileSync('docker', ['exec','-i',container,'psql','-X','-U','postgres','-d','postgres','-v','ON_ERROR_STOP=1','-At'], {input:text, encoding:'utf8', stdio:['pipe','pipe','pipe']});
 let stage = 'discovery';
 try {
   const work=ownedSandbox(workInput);
-  const suites=discoverSuites(root,work);
+  const suites=stagedSuites(work);
   console.log(`[database:modules] ${suites.length ? suites.map(s=>s.name).join(', ') : 'NONE (no db-suite.json manifests)'}`);
   stage = 'local-status';
   const status = JSON.parse(readFileSync(inside(work,'status.json'),'utf8'));
@@ -45,7 +45,7 @@ try {
   };
   users.push(await createUser(), await createUser());
   assert.notEqual(users[0].id,users[1].id);
-  console.log('[database:auth] PASS: two real users, password sessions and Auth-verified JWTs');
+  console.log('[database:auth] PASS: two real users, signed-in sessions and Auth-verified JWTs');
   const api = (identity, path, options) => {
     const token = identity === 'anon' ? anon : tokens.get(identity);
     assert(token, 'unknown identity');
