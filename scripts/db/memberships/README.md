@@ -45,7 +45,10 @@ workflow edit, package script, remote credential or exposed test RPC.
 
 Privileged SQL is fixture preparation, schema inspection, administrative invariant
 checking or explicit second-barrier testing. It never substitutes for JWT RLS.
-No role-transition/invitation RPC, future bootstrap stage or resolver is exposed.
+The historical public.is_trip_owner predicate remains for legacy policies, with
+SECURITY INVOKER, empty search_path and authenticated-only EXECUTE. Its trips query
+is filtered by membership RLS, so it cannot reveal a removed creator’s trip.
+No new role-transition/invitation RPC, future bootstrap stage or resolver is exposed.
 `can_converse` is private and has no client execute grant before its P04 consumer.
 Contractual resolution via a domain action belongs to P07; P03 proves exact RLS
 queries and the relational bridge, without adding heuristic resolvers.

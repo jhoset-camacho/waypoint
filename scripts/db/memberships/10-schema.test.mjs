@@ -36,6 +36,12 @@ BEGIN
     IF f.prosecdef IS DISTINCT FROM (f.proname IN ('guard_trip_creation','bootstrap_trip_core','protect_trip_organizers','trip_role')) THEN RAISE EXCEPTION 'Unexpected definer'; END IF;
     IF f.proname IN ('trip_role','is_trip_member','can_converse') AND f.provolatile<>'s' THEN RAISE EXCEPTION 'Unstable helper'; END IF;
   END LOOP;
+  IF (SELECT prosecdef FROM pg_proc WHERE oid='public.is_trip_owner(uuid)'::regprocedure) OR
+     (SELECT proconfig FROM pg_proc WHERE oid='public.is_trip_owner(uuid)'::regprocedure) IS DISTINCT FROM ARRAY['search_path=""'] OR
+     has_function_privilege('anon','public.is_trip_owner(uuid)','EXECUTE') OR
+     NOT has_function_privilege('authenticated','public.is_trip_owner(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'Legacy compatibility predicate bypasses membership';
+  END IF;
   IF to_regprocedure('public.create_self_traveler()') IS NOT NULL OR EXISTS
      (SELECT 1 FROM pg_trigger WHERE tgrelid='public.trips'::regclass AND tgname='trg_create_self_traveler') THEN RAISE EXCEPTION 'Historical bootstrap retained'; END IF;
   IF (SELECT count(*) FROM pg_trigger WHERE tgrelid='public.trips'::regclass AND NOT tgisinternal AND (tgtype & 4)=4)<>2 OR

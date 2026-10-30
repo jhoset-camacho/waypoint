@@ -76,6 +76,13 @@ export default async ({sql,api,users,createUser}) => {
     phase='legacy creator is not authority';
     sql(`UPDATE public.trips SET user_id='${c.id}' WHERE id='${A}';`);
     check((await api(c,`trips?id=eq.${A}&select=id`)).body.length===0);
+    for(const key of [A,B,randomUUID()]) {
+      const compatibility=await api(c,'rpc/is_trip_owner',{method:'POST',body:{p_trip_id:key}});
+      check(compatibility.status===200 && compatibility.body===false);
+    }
+    const anonymousCompatibility=await api('anon','rpc/is_trip_owner',{method:'POST',body:{p_trip_id:A}});
+    check([401,403].includes(anonymousCompatibility.status) && anonymousCompatibility.body.code==='42501');
+
     check((await api(a1,`trips?id=eq.${A}&select=id`)).body.length===1);
     phase='42501 before guard / 55000 privileged second barrier';
     const refused=randomUUID();

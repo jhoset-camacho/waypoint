@@ -218,6 +218,17 @@ USING ((SELECT private.is_trip_member(trip_id)));
 CREATE POLICY memberships_select_member ON public.trip_memberships FOR SELECT TO authenticated
 USING ((SELECT private.is_trip_member(trip_id)));
 GRANT SELECT ON public.trips, public.travelers, public.trip_memberships TO authenticated;
+-- Keep the historical predicate for untouched legacy policies, but let trips RLS
+-- enforce active membership even for that compatibility path. It must not be a
+-- SECURITY DEFINER oracle for a removed legacy creator. No new legacy grants.
+CREATE OR REPLACE FUNCTION public.is_trip_owner(p_trip_id uuid) RETURNS boolean
+LANGUAGE sql STABLE SECURITY INVOKER SET search_path = '' AS $$
+    SELECT EXISTS (SELECT 1 FROM public.trips AS t
+                   WHERE t.id = p_trip_id AND t.user_id = (SELECT auth.uid()));
+$$;
+REVOKE ALL ON FUNCTION public.is_trip_owner(uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.is_trip_owner(uuid) TO authenticated;
+
 -- Explicit administrative fixture/service operations; no TRUNCATE/REFERENCES/TRIGGER.
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.trips, public.travelers, public.trip_memberships TO service_role;
 
