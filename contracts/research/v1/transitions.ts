@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { Count, Id, Instant, ItemRef, RevisionRef, sameRevision } from "./die.ts";
-import { BudgetPair, Checkpoint, Dependency, PartialDelivery } from "./hec.ts";
+import { BudgetPair, Checkpoint, Dependency, PartialDelivery, UniqueDependencies } from "./hec.ts";
 
 const money = z.object({ minor_units: Count, currency: z.string().regex(/^[A-Z]{3}$/) }).strict();
 const request = z.discriminatedUnion("kind", [
@@ -101,9 +101,11 @@ export function assessResume(rawCheckpoint: unknown, context: {
   const checkpoint = Checkpoint.parse(rawCheckpoint);
   const at = Date.parse(Instant.parse(context.now));
   if (!context.explicit || !context.authorized) return "denied";
+  const currentDependencies = UniqueDependencies.safeParse(context.dependencies);
+  if (!currentDependencies.success) return "revalidate";
   if (checkpoint.version !== context.version || checkpoint.configuration_version !== context.configuration_version ||
       !sameRevision(checkpoint.revision, context.revision) || checkpoint.state_version !== context.state_version ||
-      checkpoint.dependencies.some((dep) => !dependencyUsable(dep, context.dependencies.find((d) => d.id === dep.id), at))) {
+      checkpoint.dependencies.some((dep) => !dependencyUsable(dep, currentDependencies.data.find((d) => d.id === dep.id), at))) {
     return "revalidate";
   }
   if ([checkpoint.budgets.research, checkpoint.budgets.execution].some((budget) =>

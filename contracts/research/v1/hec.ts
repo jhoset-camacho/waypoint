@@ -30,8 +30,9 @@ export const ToolObservation = z.object({
   outcome: z.enum(["observed", "incomplete", "timeout", "rate_limited", "failed", "denied"]),
   evidence: z.array(ItemRef), claims: z.array(ItemRef), cost: measurement,
 }).strict().superRefine((value, ctx) => {
-  if ([...value.evidence, ...value.claims].some((ref) => !sameRevision(ref, value.revision)) ||
-      (value.evidence.length > 0 && (value.access !== "authorized" || !["observed", "incomplete"].includes(value.outcome)))) {
+  const links = [...value.evidence, ...value.claims];
+  if (links.some((ref) => !sameRevision(ref, value.revision)) ||
+      (links.length > 0 && (value.access !== "authorized" || !["observed", "incomplete"].includes(value.outcome)))) {
     issue(ctx, ["evidence"], "Evidence requires authorized observations linked to the exact DIE revision");
   }
 });
@@ -75,11 +76,17 @@ export const Dependency = z.object({
   access: z.enum(["authorized", "revoked", "unknown"]),
 }).strict();
 
+export const UniqueDependencies = z.array(Dependency).superRefine((dependencies, ctx) => {
+  if (new Set(dependencies.map(({ id }) => id)).size !== dependencies.length) {
+    issue(ctx, [], "Dependency IDs must be unique");
+  }
+});
+
 export const Checkpoint = z.object({
   hec_version: z.literal("1.0.0"), id: Id, version: Count, configuration_version: Id,
   revision: RevisionRef, attempt_id: Id, scope_ref: Id, authority_ref: Id,
   state_version: Count, paused_at: Instant, reason: Id, cursor_ref: Id.optional(),
-  budgets: BudgetPair, pending: z.array(Id), dependencies: z.array(Dependency),
+  budgets: BudgetPair, pending: z.array(Id), dependencies: UniqueDependencies,
   evidence: z.array(ItemRef), dispositions: z.array(ItemRef),
 }).strict().superRefine((value, ctx) => {
   if ([...value.evidence, ...value.dispositions].some((ref) => !sameRevision(ref, value.revision))) {

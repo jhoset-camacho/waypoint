@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  BlindInput, ResearchRevision, ToolObservation, assessResume, classifyOperation, markDispatched, reconcileOperation, LearningPromotion,
+  BlindInput, EvaluationRun, ResearchRevision, ToolObservation, assessResume, classifyOperation, markDispatched, reconcileOperation, LearningPromotion,
   closeWithAvailableEvidence, nextSharedStateVersion, reserveOperation,
 } from "./index.ts";
 import { baseTokyoResponseFixture, lodgingProposalFixture } from "../../agent-application/v1/fixtures.ts";
@@ -75,7 +75,22 @@ test("unknown cost is explicit and a timeout cannot carry verified evidence", ()
     outcome: "timeout", evidence: [], claims: [], cost: { status: "unknown", reason: "no receipt" },
   };
   ToolObservation.parse(observation);
-  assert.equal(ToolObservation.safeParse({ ...observation, evidence: [ref] }).success, false);
+  for (const access of ["denied", "revoked"]) {
+    for (const outcome of ["denied", "observed"]) {
+      for (const field of ["claims", "evidence"]) {
+        assert.equal(ToolObservation.safeParse({ ...observation, access, outcome, [field]: [ref] }).success, false);
+      }
+    }
+  }
+  for (const field of ["claims", "evidence"]) {
+    assert.equal(ToolObservation.safeParse({ ...observation, [field]: [ref] }).success, false);
+  }
+  for (const outcome of ["observed", "incomplete"]) {
+    const linked = { ...observation, outcome, evidence: [ref], claims: [{ ...ref, item_id: "claim" }] };
+    assert.deepEqual(ToolObservation.parse(linked), linked);
+    assert.equal(ToolObservation.safeParse({ ...linked, claims: [{ ...ref, revision_id: "stale" }] }).success, false);
+  }
+  ToolObservation.parse({ ...observation, access: "revoked", outcome: "denied" });
 });
 
 test("resume requires explicit authority, matching versions and current dependencies", () => {
@@ -91,6 +106,13 @@ test("resume requires explicit authority, matching versions and current dependen
   assert.equal(assessResume(checkpoint, { ...context, explicit: false }), "denied");
   assert.equal(assessResume(checkpoint, { ...context, now: later }), "revalidate");
   assert.equal(assessResume(checkpoint, { ...context, dependencies: [{ ...dep, access: "revoked" }] }), "revalidate");
+  const revoked = { ...dep, access: "revoked" };
+  for (const dependencies of [[dep, revoked], [revoked, dep], [dep, dep]]) {
+    assert.throws(() => assessResume({ ...checkpoint, dependencies }, context), /Dependency IDs must be unique/);
+    assert.equal(assessResume(checkpoint, { ...context, dependencies }), "revalidate");
+  }
+  const dependencies = [dep, { ...dep, id: "another" }];
+  assert.equal(assessResume({ ...checkpoint, dependencies }, { ...context, dependencies }), "eligible");
   assert.equal(nextSharedStateVersion(2, ["private", "checkpoint"]), 2);
   assert.equal(nextSharedStateVersion(2, ["shared_material", "shared_material"]), 3);
   assert.equal(classifyOperation({ key: "key", fingerprint: "one" }, { key: "key", fingerprint: "one" }), "replay");
@@ -178,4 +200,33 @@ test("compatibility omits affected actions without rewriting surviving proposals
     canReadRevision: () => false, canReadItem: () => false }).envelope;
   assert.deepEqual(output.units.map(({ id }) => id), ["missing", "unaffected"]);
   assert.deepEqual(output.units[1].payload.proposal, lodgingProposalFixture);
+});
+
+test("a critical finding prevents accreditation across the entire run", () => {
+  const versioned = { id: "artifact", version: "1" };
+  const digest = "a".repeat(64);
+  const seal = { digest, actor_id: "reviewer", sealed_at: at };
+  const run = {
+    id: "run", eval_version: "1.0.0", die_version: "1.0.0", suite: versioned, scenario: versioned,
+    fixture: { ...versioned, dataset: versioned, classification: "synthetic", revision, provenance: "fixture", scope_ref: "scope", digest },
+    rubric: { ...versioned, dimensions: ["criterion", "privacy"], critical_blocks: ["exposure"], seal },
+    runtime: versioned, model: versioned, tool_config: versioned, started_at: at,
+    output: { ...seal, sealed_at: later, revision, trace_ref: "trace" }, comparison_limits: [],
+    attempts: [{ id: "attempt", reason: "first", budget_trace_ref: "budget" }],
+    contamination: [], judge_prior_knowledge_ref: "declared",
+  };
+  const accredited = {
+    dimension: "criterion", layer: "deterministic", result: "accredited",
+    observations: [{ statement: "Observed", evidence: [ref] }], missing: [], critical_findings: [], judgment: "Supported",
+  };
+  const blocked = {
+    ...accredited, dimension: "privacy", result: "blocked", critical_findings: ["exposure"], judgment: "Privacy failure",
+  };
+  for (const verdicts of [[accredited, blocked], [blocked, accredited]]) {
+    assert.equal(EvaluationRun.safeParse({ ...run, verdicts }).success, false);
+  }
+  const diagnostics = [{ ...accredited, result: "partial" }, blocked];
+  assert.deepEqual(EvaluationRun.parse({ ...run, verdicts: diagnostics }).verdicts, diagnostics);
+  const passing = [accredited, { ...accredited, dimension: "privacy" }];
+  assert.deepEqual(EvaluationRun.parse({ ...run, verdicts: passing }).verdicts, passing);
 });

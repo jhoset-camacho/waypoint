@@ -50,6 +50,7 @@ export const EvaluationRun = z.object({
       (run.reveal_at && (outputAt === undefined || outputAt >= Date.parse(run.reveal_at)))) {
     issue(ctx, ["output"], "Seal the rubric before output and the output before reveal");
   }
+  const hasCriticalFinding = run.verdicts.some((verdict) => verdict.critical_findings.length > 0);
   for (const verdict of run.verdicts) {
     const supports = verdict.observations.flatMap(({ evidence }) => evidence);
     if (!run.rubric.dimensions.includes(verdict.dimension) ||
@@ -57,7 +58,7 @@ export const EvaluationRun = z.object({
       issue(ctx, ["verdicts"], "Judgment must resolve to a rubric dimension and the sealed DIE revision");
     }
     if (verdict.result === "accredited" && (!run.output || !run.judge_prior_knowledge_ref ||
-        verdict.critical_findings.length || verdict.missing.length || !supports.length ||
+        hasCriticalFinding || verdict.missing.length || !supports.length ||
         run.contamination.length || (run.fixture.classification === "synthetic" && verdict.layer !== "deterministic"))) {
       issue(ctx, ["verdicts"], "Accreditation requires evidenced judgment with no critical block");
     }
